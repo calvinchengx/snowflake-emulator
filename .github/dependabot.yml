@@ -1,0 +1,60 @@
+version: 2
+
+# This repo had no config at all, and it showed: 30 security alerts accumulated
+# with no grouped update PRs, and the cryptography ones could not have been
+# fixed by a bump anyway — `snowflake-connector-python<4` in pyproject.toml
+# capped cryptography at 45.x, so the alerts sat there looking like lockfile
+# staleness. Grouping is what makes that visible early, while the upgrade is
+# one decision rather than thirty.
+updates:
+  # Go: the emulator itself.
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      go:
+        patterns: ['*']
+
+  # The gosnowflake witness is a SEPARATE module and gets a separate PR, even
+  # though both are gomod. It is Snowflake's own Go driver plus the AWS, otel
+  # and thrift stack it drags in, and it is evidence rather than product code:
+  # a red PR here says the emulator no longer satisfies the real driver, which
+  # is a parity signal and not upgrade noise. Bundled with the emulator's own
+  # dependencies, that signal would be read as a routine bump.
+  - package-ecosystem: gomod
+    directory: /e2e/sdk/gosnowflake
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      gosnowflake:
+        patterns: ['*']
+
+  # Python, one lockfile for every dependency-group. The official clients are
+  # split out for the same reason as gosnowflake: they are the witnesses, so
+  # their PR is a re-run of the suites against the newest clients Snowflake and
+  # dbt Labs ship. Majors are in scope deliberately — connector 4.x is where
+  # `cryptography>=46.0.5` lives, so a config that avoided majors would have
+  # kept this repo permanently exposed.
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      snowflake-clients:
+        patterns: ['snowflake-*', 'dbt-*']
+      python:
+        patterns: ['*']
+        exclude-patterns: ['snowflake-*', 'dbt-*']
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      actions:
+        patterns: ['*']
