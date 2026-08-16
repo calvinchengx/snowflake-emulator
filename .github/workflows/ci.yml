@@ -18,7 +18,7 @@ jobs:
         with:
           go-version: "1.25"
       - run: make test
-      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
+      - uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d
         with:
           version: "0.12.3"
       - run: python3 scripts/check_witnesses.py
@@ -31,7 +31,7 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version: "1.25"
-      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
+      - uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d
         with:
           version: "0.12.3"
       - run: uv run --frozen --group sdk python e2e/sdk/run.py
@@ -44,7 +44,7 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version: "1.25"
-      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
+      - uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d
         with:
           version: "0.12.3"
       - name: Install duckdb CLI
@@ -61,7 +61,7 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version: "1.25"
-      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
+      - uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d
         with:
           version: "0.12.3"
       - name: Install duckdb CLI
@@ -78,7 +78,7 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version: "1.25"
-      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
+      - uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d
         with:
           version: "0.12.3"
       - name: Install duckdb CLI
@@ -92,7 +92,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
+      - uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d
         with:
           version: "0.12.3"
       - name: Install duckdb CLI
