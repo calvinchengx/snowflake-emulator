@@ -1,0 +1,16 @@
+# Runtime state
+/data/
+/stages/
+*.log
+/snowflake-emulator
+/snowflake-emulator.exe
+.venv/
+__pycache__/
+/dist/
+cover.out
+.pytest_cache/
+*.egg-info/
+e2e/dbt/project/target/
+e2e/dbt/project/logs/
+python/snowflake-target/build/
+

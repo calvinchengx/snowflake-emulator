@@ -1,0 +1,5 @@
+name: sf_e2e
+config-version: 2
+version: "1.0.0"
+profile: sf_e2e
+model-paths: ["models"]

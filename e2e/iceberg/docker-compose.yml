@@ -1,0 +1,9 @@
+# Polaris OSS sidecar (Phase 3). The emulator fails naming SNOWFLAKE_POLARIS_URL
+# when this is not running. Iceberg REST listing is also served on the emulator
+# at /iceberg/v1/ after CREATE ICEBERG TABLE.
+services:
+  polaris:
+    image: apache/polaris:1.0.1-incubating
+    profiles: [polaris]
+    ports:
+      - "18181:8181"

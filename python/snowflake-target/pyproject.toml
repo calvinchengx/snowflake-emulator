@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "snowflake-target"
+version = "0.1.0"
+description = "SNOWFLAKE_TARGET=emulator|real resolves host, warehouse-by-name, database, schema; code holds names."
+requires-python = ">=3.9"
+dependencies = []
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["snowflake_target*"]

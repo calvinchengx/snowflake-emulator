@@ -1,0 +1,37 @@
+{
+  "seeded-pat": {
+    "section": "Identity",
+    "claim": "Seeded PAT",
+    "witnesses": ["ci:e2e-sdk", "go:TestLoginRejectsDevAndEmpty"]
+  },
+  "sql-warehouses": {
+    "section": "SQL",
+    "claim": "SQL warehouses",
+    "witnesses": ["ci:e2e-sql"]
+  },
+  "internal-stage-copy-into": {
+    "section": "SQL",
+    "claim": "Internal stage COPY INTO",
+    "witnesses": ["ci:e2e-sql"]
+  },
+  "iceberg-rest-list": {
+    "section": "Catalog",
+    "claim": "Iceberg REST list",
+    "witnesses": ["ci:e2e-iceberg", "go:TestIcebergNamesMissingPolaris"]
+  },
+  "snowflake-connector-python-gosnowflake": {
+    "section": "Clients",
+    "claim": "snowflake-connector-python / gosnowflake",
+    "witnesses": ["ci:e2e-sdk", "ci:e2e-sql"]
+  },
+  "dbt-snowflake-warehouse-run": {
+    "section": "Clients",
+    "claim": "dbt-snowflake warehouse run",
+    "witnesses": ["ci:e2e-dbt"]
+  },
+  "snowflake-target-toggle": {
+    "section": "Clients",
+    "claim": "snowflake-target toggle",
+    "witnesses": ["ci:e2e-snowflake-target"]
+  }
+}
