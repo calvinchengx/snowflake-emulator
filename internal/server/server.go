@@ -51,7 +51,7 @@ func New(cfg config.Config) (*Server, error) {
 	}
 	patPath := filepath.Join(cfg.DataDir, "admin.pat")
 	s := &Server{
-		Cfg:    cfg,
+		Cfg:     cfg,
 		tokens:  map[string]session{},
 		wh:      map[string]warehouse{},
 		iceberg: map[string]string{},
@@ -433,13 +433,29 @@ func (s *Server) handleWarehouseSQL(sqlText, upper string) (bool, error) {
 var (
 	reShowSchemas = regexp.MustCompile(`(?i)^SHOW\s+(?:TERSE\s+)?SCHEMAS`)
 	reShowObjects = regexp.MustCompile(`(?i)^SHOW\s+(?:TERSE\s+)?(?:OBJECTS|TABLES)`)
-	reDescribeTbl = regexp.MustCompile(`(?i)^DESC(?:RIBE)?\s+TABLE\s+(.+)`)
+	// dbt-snowflake 1.12 lists user-defined functions before running a model.
+	// Answered here rather than in the rewrite layer because the answer is an
+	// EMPTY result that still carries columns, and that cannot survive the
+	// duckdb round trip: `duckdb -json` prints `[]` for zero rows, so the
+	// schema is gone by the time Exec returns and the response degrades to
+	// status/ok. dbt then does schema_functions.select([...]) and agate raises
+	// ValueError on the missing names.
+	reShowFunctions = regexp.MustCompile(`(?i)^SHOW\s+(?:TERSE\s+)?(?:USER\s+)?FUNCTIONS\b`)
+	reDescribeTbl   = regexp.MustCompile(`(?i)^DESC(?:RIBE)?\s+TABLE\s+(.+)`)
 )
 
 func (s *Server) handleCatalogSQL(w http.ResponseWriter, sqlText string) bool {
 	trimmed := strings.TrimSpace(sqlText)
 	if reShowSchemas.MatchString(trimmed) {
 		writeQueryOK(w, []string{"name"}, [][]string{{"PUBLIC"}, {"MAIN"}, {"GOLD"}, {"INFORMATION_SCHEMA"}}, "duckdb")
+		return true
+	}
+	if reShowFunctions.MatchString(trimmed) {
+		// The emulator defines no UDFs, so the honest answer is no rows. The
+		// column list is what dbt selects; is_builtin is Y/N in Snowflake and
+		// dbt keeps the N rows.
+		writeQueryOK(w, []string{"created_on", "name", "schema_name",
+			"catalog_name", "is_builtin"}, nil, "duckdb")
 		return true
 	}
 	if reShowObjects.MatchString(trimmed) {
@@ -547,29 +563,36 @@ func writeQueryOK(w http.ResponseWriter, cols []string, rows [][]string, dialect
 		}
 		cols = []string{"status"}
 	}
+	// A zero-row result must serialise as [] and not null. A nil slice marshals
+	// to JSON null, and the Snowflake connector calls len() on rowset, so an
+	// empty answer with real columns came back as "object of type 'NoneType'
+	// has no len()" rather than an empty table.
+	if rows == nil {
+		rows = [][]string{}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"success": true,
 		"message": nil,
 		"code":    nil,
 		"data": map[string]any{
-			"queryId":             "q1",
-			"sqlState":            "00000",
-			"rowtype":             rowtype,
-			"rowset":              rows,
-			"total":               len(rows),
-			"returned":            len(rows),
-			"queryResultFormat":   "json",
-			"statementTypeId":     4096,
-			"version":             1,
-			"numberOfBinds":       0,
-			"chunks":              []any{},
-			"qrmk":                "",
-			"chunkHeaders":        map[string]any{},
-			"finalDatabaseName":   "TEST_DB",
-			"finalSchemaName":     "PUBLIC",
-			"finalWarehouseName":  "",
-			"finalRoleName":       "ACCOUNTADMIN",
-			"dialect":             dialect,
+			"queryId":            "q1",
+			"sqlState":           "00000",
+			"rowtype":            rowtype,
+			"rowset":             rows,
+			"total":              len(rows),
+			"returned":           len(rows),
+			"queryResultFormat":  "json",
+			"statementTypeId":    4096,
+			"version":            1,
+			"numberOfBinds":      0,
+			"chunks":             []any{},
+			"qrmk":               "",
+			"chunkHeaders":       map[string]any{},
+			"finalDatabaseName":  "TEST_DB",
+			"finalSchemaName":    "PUBLIC",
+			"finalWarehouseName": "",
+			"finalRoleName":      "ACCOUNTADMIN",
+			"dialect":            dialect,
 		},
 	})
 }

@@ -5,8 +5,8 @@ requires-python = ">=3.12"
 dependencies = []
 
 [dependency-groups]
-sdk = ["snowflake-connector-python>=3.12,<4"]
-sql = ["snowflake-connector-python>=3.12,<4"]
+sdk = ["snowflake-connector-python>=4.2,<5"]
+sql = ["snowflake-connector-python>=4.2,<5"]
 dbt = ["dbt-snowflake>=1.8,<2"]
 target = ["snowflake-target", "pytest>=8.3,<10"]
 
