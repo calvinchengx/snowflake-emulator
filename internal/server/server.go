@@ -62,7 +62,7 @@ func New(cfg config.Config) (*Server, error) {
 		if err != nil {
 			return nil, err
 		}
-		if err := os.WriteFile(patPath, []byte(tok+"\n"), 0o600); err != nil {
+		if err := os.WriteFile(patPath, []byte(tok+"\n"), 0o644); err != nil {
 			return nil, err
 		}
 		s.PAT = tok
