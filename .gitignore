@@ -14,3 +14,5 @@ e2e/dbt/project/target/
 e2e/dbt/project/logs/
 python/snowflake-target/build/
 
+# Local tooling
+.nwave/
