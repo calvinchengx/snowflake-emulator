@@ -3,11 +3,11 @@ package config
 import "os"
 
 type Config struct {
-	Addr      string
-	DataDir   string
-	PublicURL string
-	DuckDB    string // empty = not attached; ":memory:" or a file path
-	StageDir  string
+	Addr       string
+	DataDir    string
+	PublicURL  string
+	DuckDB     string // empty = not attached; ":memory:" or a file path
+	StageDir   string
 	PolarisURL string
 }
 
