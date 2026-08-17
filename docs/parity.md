@@ -38,5 +38,5 @@
 | Feature | Emulator | Type |
 |---|---|---|
 | snowflake-connector-python / gosnowflake | Login + SELECT 1. | 🟢 Real |
-| dbt-snowflake warehouse run | Unmodified `dbt-snowflake` `dbt run` of `one` and `two`. | 🟢 Real |
+| dbt-snowflake warehouse run | Unmodified `dbt-snowflake` `dbt run` of `one` and `two`. dbt is the writer, so it is not the witness: the emulator is stopped and a separate **duckdb** binary opens the warehouse file and confirms both models hold `id=1`. | 🟢 Real |
 | snowflake-target toggle | `SNOWFLAKE_TARGET=emulator\|real`. | 🟢 Real |

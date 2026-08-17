@@ -1,14 +1,20 @@
 #!/usr/bin/env python3
-"""Phase 4: unmodified dbt-snowflake one + two over the warehouse handle."""
+"""Phase 4: unmodified dbt-snowflake one + two over the warehouse handle.
+
+dbt is the writer, so dbt is not the witness. Its exit code only says it
+believed it succeeded. After the run the emulator is stopped and a separate
+duckdb binary opens the warehouse file directly, with nothing of ours in the
+read path, and checks the models are really there holding the right rows.
+"""
 
 from __future__ import annotations
 
 import json
 import os
 import subprocess
-import sys
 import tempfile
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -29,6 +35,29 @@ def wait_http(url: str, timeout: float = 30.0) -> None:
             last = exc
             time.sleep(0.1)
     raise SystemExit(f"never healthy: {last}")
+
+
+def duckdb_rows(db: Path, sql: str) -> list[str]:
+    """Read the warehouse file with the duckdb CLI. The emulator is stopped by
+    the time this runs, so the engine that wrote is not the one confirming."""
+    proc = subprocess.run(
+        ["duckdb", str(db), "-noheader", "-list", "-c", sql],
+        text=True, capture_output=True,
+    )
+    if proc.returncode != 0:
+        raise SystemExit(f"duckdb {sql!r} failed: {proc.stderr.strip()}")
+    return [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+
+
+def refused(pat: str) -> bool:
+    """A bad credential must not reach the warehouse."""
+    try:
+        api(pat, "SELECT 1")
+    except urllib.error.HTTPError:
+        return True
+    except urllib.error.URLError:
+        return True
+    return False
 
 
 def api(pat: str, sql: str) -> dict:
@@ -75,21 +104,49 @@ def main() -> int:
             "      threads: 1\n",
             encoding="utf-8",
         )
-        cmd = [
-            sys.executable, "-m", "dbt", "run",
-            "--project-dir", str(HERE / "project"),
-            "--profiles-dir", str(data_dir),
-        ]
+        if not refused("not-a-real-token"):
+            raise SystemExit("a bad token reached the warehouse")
+        print("   bad token refused")
+
         # uv run already has dbt on PATH when invoked via make
         env["DBT_PROFILES_DIR"] = str(data_dir)
-        r = subprocess.run(["dbt", "run", "--project-dir", str(HERE / "project"), "--profiles-dir", str(data_dir)], cwd=ROOT, env=env)
+        r = subprocess.run(
+            ["dbt", "run", "--project-dir", str(HERE / "project"), "--profiles-dir", str(data_dir)],
+            cwd=ROOT, env=env,
+        )
         if r.returncode != 0:
             raise SystemExit("dbt run failed")
-        print("e2e-dbt: dbt run one + two ok")
-        return 0
-    finally:
+
+        # Stop the emulator before reading: DuckDB is single-writer, and a
+        # confirmer that needed the writer alive would not be independent.
         proc.terminate()
         proc.wait(timeout=5)
+        proc = None
+
+        db = data_dir / "wh.duckdb"
+        listed = duckdb_rows(
+            db,
+            "select table_name from information_schema.tables "
+            "where table_schema = 'main' order by table_name",
+        )
+        for model in ("one", "two"):
+            if model not in listed:
+                raise SystemExit(f"dbt reported success but {model} is not in the warehouse: {listed}")
+
+        # two selects from ref('one'), so its rows prove the dependency
+        # resolved and both models really materialized.
+        for model, want in (("one", ["1"]), ("two", ["1"])):
+            got = duckdb_rows(db, f"select id from main.{model} order by id")
+            if got != want:
+                raise SystemExit(f"{model} holds {got}, want {want}")
+
+        print(f"   duckdb confirms {listed} with id=1, emulator stopped")
+        print("e2e-dbt: dbt run one + two, confirmed by duckdb")
+        return 0
+    finally:
+        if proc is not None:
+            proc.terminate()
+            proc.wait(timeout=5)
 
 
 if __name__ == "__main__":
