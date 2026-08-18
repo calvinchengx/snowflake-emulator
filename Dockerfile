@@ -11,7 +11,7 @@ FROM debian:bookworm-slim
 ARG TARGETARCH
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl unzip \
     && arch="$TARGETARCH" \
-    && if [ "$arch" = "arm64" ]; then duck=linux-arm64; else duck=linux-amd64; fi \
+    && if [ "$arch" = "arm64" ]; then duck=linux-aarch64; else duck=linux-amd64; fi \
     && curl -fsSL -o /tmp/duckdb.zip "https://github.com/duckdb/duckdb/releases/download/v1.2.2/duckdb_cli-${duck}.zip" \
     && unzip -o /tmp/duckdb.zip -d /usr/local/bin \
     && chmod +x /usr/local/bin/duckdb \
