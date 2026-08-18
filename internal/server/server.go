@@ -387,7 +387,7 @@ func (s *Server) runSQL(w http.ResponseWriter, tok string, sess session, sqlText
 			writeFail(w, http.StatusOK, "001008", err.Error())
 			return
 		}
-		writeQueryOK(w, res.Columns, res.Rows, res.Dialect)
+		writeQueryTyped(w, res.Columns, res.Types, res.Rows, res.Dialect)
 		return
 	}
 
@@ -396,7 +396,7 @@ func (s *Server) runSQL(w http.ResponseWriter, tok string, sess session, sqlText
 		writeFail(w, http.StatusOK, "002001", err.Error())
 		return
 	}
-	writeQueryOK(w, res.Columns, res.Rows, res.Dialect)
+	writeQueryTyped(w, res.Columns, res.Types, res.Rows, res.Dialect)
 }
 
 var createWH = regexp.MustCompile(`(?i)CREATE\s+WAREHOUSE\s+(?:IF\s+NOT\s+EXISTS\s+)?([A-Za-z0-9_]+)`)
@@ -468,12 +468,13 @@ func (s *Server) handleCatalogSQL(w http.ResponseWriter, sqlText string) bool {
 			writeFail(w, http.StatusOK, "002001", err.Error())
 			return true
 		}
+		// BY NAME. This read the LAST column, which was a way of coping with
+		// column order that was randomised per request; it is stable now, and
+		// SHOW TABLES answers one column called `name` either way.
+		at := columnAt(res.Columns, "name")
 		rows := make([][]string, 0, len(res.Rows))
 		for _, r := range res.Rows {
-			name := ""
-			if len(r) > 0 {
-				name = r[len(r)-1]
-			}
+			name := cell(r, at)
 			if name == "" {
 				continue
 			}
@@ -495,16 +496,20 @@ func (s *Server) handleCatalogSQL(w http.ResponseWriter, sqlText string) bool {
 			writeFail(w, http.StatusOK, "002001", err.Error())
 			return true
 		}
+		// BY NAME, for the reason above and one worse: DESCRIBE answers six
+		// columns, so reading r[0] and r[1] out of a randomised order gave the
+		// right pair twice in eight tries and ['<nil>','<nil>'] or
+		// ['INTEGER','YES'] the rest. Core's `money_is_never_stored_as_float`
+		// reflects types through exactly this statement.
+		nameAt := columnAt(res.Columns, "column_name")
+		typeAt := columnAt(res.Columns, "column_type")
 		rows := make([][]string, 0, len(res.Rows))
 		for _, r := range res.Rows {
-			colName, colType := "", "TEXT"
-			if len(r) > 0 {
-				colName = r[0]
+			colType := cell(r, typeAt)
+			if colType == "" {
+				colType = "TEXT"
 			}
-			if len(r) > 1 {
-				colType = r[1]
-			}
-			rows = append(rows, []string{colName, colType})
+			rows = append(rows, []string{cell(r, nameAt), colType})
 		}
 		writeQueryOK(w, []string{"name", "type"}, rows, "duckdb")
 		return true
@@ -551,6 +556,104 @@ func bearer(r *http.Request) string {
 	return ""
 }
 
+// snowflakeType maps one DuckDB type onto the rowtype a Snowflake client
+// expects, because the connector converts VALUES BY TYPE and the values
+// themselves travel as text either way.
+//
+// Calling everything "text" is what this replaces, and it was not cosmetic:
+// dbt's own result schema requires an integer for a test's `failures`, so all
+// 52 of the Contoso gold contracts died on `'0' is not of type 'integer'` --
+// PASS=0 ERROR=52, no verdict from any of them. Nothing about the numbers was
+// wrong; there was simply no way for a caller to learn what they were.
+//
+// `fixed` carries precision and scale, and that is the case worth being exact
+// about. DECIMAL(19,4) reaching a client as a float is the defect this family
+// has already met once, on another engine, in a money column.
+func snowflakeType(duck string) (string, int, int) {
+	up := strings.ToUpper(strings.TrimSpace(duck))
+	base := up
+	if i := strings.IndexByte(up, '('); i >= 0 {
+		base = up[:i]
+	}
+	switch base {
+	case "TINYINT", "SMALLINT", "INTEGER", "INT", "INT2", "INT4", "INT8",
+		"BIGINT", "HUGEINT", "UTINYINT", "USMALLINT", "UINTEGER", "UBIGINT":
+		return "fixed", 38, 0
+	case "DECIMAL", "NUMERIC":
+		p, s := 38, 0
+		if _, err := fmt.Sscanf(up[len(base):], "(%d,%d)", &p, &s); err != nil {
+			p, s = 38, 0
+		}
+		return "fixed", p, s
+	case "FLOAT", "REAL", "DOUBLE", "FLOAT4", "FLOAT8":
+		return "real", 0, 0
+	case "BOOLEAN", "BOOL", "LOGICAL":
+		return "boolean", 0, 0
+	case "DATE":
+		return "date", 0, 0
+	case "TIME":
+		return "time", 0, 0
+	case "TIMESTAMP", "DATETIME", "TIMESTAMP_NS", "TIMESTAMP_MS", "TIMESTAMP_S":
+		return "timestamp_ntz", 0, 0
+	case "TIMESTAMPTZ", "TIMESTAMP WITH TIME ZONE":
+		return "timestamp_ltz", 0, 0
+	case "BLOB", "BYTEA", "VARBINARY":
+		return "binary", 0, 0
+	default:
+		return "text", 0, 0
+	}
+}
+
+// columnAt finds a column by name, or -1. Reading a result positionally is
+// what made DESCRIBE non-deterministic; a name is what the caller meant.
+func columnAt(cols []string, want string) int {
+	for i, c := range cols {
+		if strings.EqualFold(c, want) {
+			return i
+		}
+	}
+	return -1
+}
+
+func cell(row []*string, at int) string {
+	if at < 0 || at >= len(row) || row[at] == nil {
+		return ""
+	}
+	return *row[at]
+}
+
+// writeQueryTyped answers an engine result: real types, and NULL as JSON null
+// rather than as some rendering of the word.
+func writeQueryTyped(w http.ResponseWriter, cols, types []string, rows [][]*string, dialect string) {
+	if len(cols) == 0 {
+		writeQueryOK(w, nil, nil, dialect)
+		return
+	}
+	rowtype := make([]map[string]any, len(cols))
+	for i, c := range cols {
+		duck := ""
+		if i < len(types) {
+			duck = types[i]
+		}
+		kind, precision, scale := snowflakeType(duck)
+		rowtype[i] = map[string]any{
+			"name": c, "type": kind, "nullable": true,
+			"length": 0, "precision": precision, "scale": scale,
+		}
+	}
+	out := make([][]any, 0, len(rows))
+	for _, r := range rows {
+		cells := make([]any, len(cols))
+		for i := range cols {
+			if i < len(r) && r[i] != nil {
+				cells[i] = *r[i]
+			}
+		}
+		out = append(out, cells)
+	}
+	writeQueryBody(w, rowtype, out, dialect)
+}
+
 func writeQueryOK(w http.ResponseWriter, cols []string, rows [][]string, dialect string) {
 	rowtype := make([]map[string]any, len(cols))
 	for i, c := range cols {
@@ -563,12 +666,24 @@ func writeQueryOK(w http.ResponseWriter, cols []string, rows [][]string, dialect
 		}
 		cols = []string{"status"}
 	}
+	out := make([][]any, 0, len(rows))
+	for _, r := range rows {
+		cells := make([]any, len(r))
+		for i, v := range r {
+			cells[i] = v
+		}
+		out = append(out, cells)
+	}
+	writeQueryBody(w, rowtype, out, dialect)
+}
+
+func writeQueryBody(w http.ResponseWriter, rowtype []map[string]any, rows [][]any, dialect string) {
 	// A zero-row result must serialise as [] and not null. A nil slice marshals
 	// to JSON null, and the Snowflake connector calls len() on rowset, so an
 	// empty answer with real columns came back as "object of type 'NoneType'
 	// has no len()" rather than an empty table.
 	if rows == nil {
-		rows = [][]string{}
+		rows = [][]any{}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"success": true,
