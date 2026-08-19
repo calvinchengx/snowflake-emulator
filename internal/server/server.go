@@ -310,7 +310,11 @@ func (s *Server) runSQL(w http.ResponseWriter, tok string, sess session, sqlText
 	if s.handleCatalogSQL(w, sqlText) {
 		return
 	}
-	rewritten, extra, special := rewriteSQL(sqlText, sess)
+	rewritten, extra, special, rerr := rewriteSQL(sqlText, sess)
+	if rerr != nil {
+		writeFail(w, http.StatusOK, "001015", rerr.Error())
+		return
+	}
 	if special && extra == "use_warehouse" {
 		sess.Warehouse = rewritten
 		if tok != "" {

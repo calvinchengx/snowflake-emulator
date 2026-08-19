@@ -4,14 +4,14 @@ import "testing"
 
 func TestRewriteTransientAndCurrent(t *testing.T) {
 	sess := session{Database: "TEST_DB", Schema: "PUBLIC", Warehouse: "wh1"}
-	out, _, special := rewriteSQL("create or replace transient table one as select 1 as id", sess)
+	out, _, special, _ := rewriteSQL("create or replace transient table one as select 1 as id", sess)
 	if special {
 		t.Fatal("not special")
 	}
 	if out != "CREATE OR REPLACE TABLE one as select 1 as id" {
 		t.Fatalf("got %q", out)
 	}
-	out, extra, special := rewriteSQL("USE WAREHOUSE e2e_wh", sess)
+	out, extra, special, _ := rewriteSQL("USE WAREHOUSE e2e_wh", sess)
 	if !special || extra != "use_warehouse" || out != "e2e_wh" {
 		t.Fatalf("use warehouse: %q %q %v", out, extra, special)
 	}
