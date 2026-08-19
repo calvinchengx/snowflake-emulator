@@ -2,36 +2,226 @@
   "seeded-pat": {
     "section": "Identity",
     "claim": "Seeded PAT",
-    "witnesses": ["ci:e2e-sdk", "go:TestLoginRejectsDevAndEmpty"]
+    "witnesses": [
+      "ci:e2e-sdk",
+      "go:TestLoginRejectsDevAndEmpty"
+    ]
   },
-  "sql-warehouses": {
+  "session-context-functions": {
+    "section": "Identity",
+    "claim": "Session context functions",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "select-cte-window": {
     "section": "SQL",
-    "claim": "SQL warehouses",
-    "witnesses": ["ci:e2e-sql"]
+    "claim": "SELECT, CTE, window",
+    "witnesses": [
+      "ci:e2e-sql"
+    ]
   },
-  "internal-stage-copy-into": {
+  "qualify": {
     "section": "SQL",
-    "claim": "Internal stage COPY INTO",
-    "witnesses": ["ci:e2e-sql"]
+    "claim": "QUALIFY",
+    "witnesses": [
+      "ci:parity"
+    ]
   },
-  "iceberg-rest-list": {
+  "trycast": {
+    "section": "SQL",
+    "claim": "TRY_CAST",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "iff-nvl-nvl2-zeroifnull": {
+    "section": "SQL",
+    "claim": "IFF / NVL / NVL2 / ZEROIFNULL",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "todate-tovarchar-totimestamp": {
+    "section": "SQL",
+    "claim": "TO_DATE / TO_VARCHAR / TO_TIMESTAMP",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "datediff": {
+    "section": "SQL",
+    "claim": "DATEDIFF",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "listagg-arrayagg": {
+    "section": "SQL",
+    "claim": "LISTAGG / ARRAY_AGG",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "decimal-keeps-its-scale": {
+    "section": "SQL",
+    "claim": "Decimal keeps its scale",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "null-is-null-not-a-word": {
+    "section": "SQL",
+    "claim": "NULL is null, not a word",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "unparseable-sql-is-refused": {
+    "section": "SQL",
+    "claim": "Unparseable SQL is refused",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "variant-columns": {
+    "section": "Semi-structured",
+    "claim": "VARIANT columns",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "colon-path": {
+    "section": "Semi-structured",
+    "claim": "Colon path",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "colon-path-with-a-cast": {
+    "section": "Semi-structured",
+    "claim": "Colon path with a cast",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "lateral-flatten-over-variant": {
+    "section": "Semi-structured",
+    "claim": "LATERAL FLATTEN over VARIANT",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "lateral-flatten-over-an-array": {
+    "section": "Semi-structured",
+    "claim": "LATERAL FLATTEN over an array",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "parsejson": {
+    "section": "Semi-structured",
+    "claim": "PARSE_JSON",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "create-stage": {
+    "section": "Stages",
+    "claim": "CREATE STAGE",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "list": {
+    "section": "Stages",
+    "claim": "LIST",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "create-file-format": {
+    "section": "Stages",
+    "claim": "CREATE FILE FORMAT",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "copy-into-from-an-internal-stage": {
+    "section": "Stages",
+    "claim": "COPY INTO from an internal stage",
+    "witnesses": [
+      "ci:e2e-sql"
+    ]
+  },
+  "copy-into-with-a-named-format": {
+    "section": "Stages",
+    "claim": "COPY INTO with a named format",
+    "witnesses": [
+      "ci:e2e-sql"
+    ]
+  },
+  "copy-into-json": {
+    "section": "Stages",
+    "claim": "COPY INTO JSON",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "external-stages-are-refused": {
+    "section": "Stages",
+    "claim": "External stages are refused",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "an-unsupported-format-option-is-refused": {
+    "section": "Stages",
+    "claim": "An unsupported format option is refused",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "show-tables": {
     "section": "Catalog",
-    "claim": "Iceberg REST list",
-    "witnesses": ["ci:e2e-iceberg", "go:TestIcebergNamesMissingPolaris"]
+    "claim": "SHOW TABLES",
+    "witnesses": [
+      "ci:parity"
+    ]
   },
-  "snowflake-connector-python-gosnowflake": {
-    "section": "Clients",
-    "claim": "snowflake-connector-python / gosnowflake",
-    "witnesses": ["ci:e2e-sdk", "ci:e2e-sql"]
+  "describe-table": {
+    "section": "Catalog",
+    "claim": "DESCRIBE TABLE",
+    "witnesses": [
+      "ci:parity"
+    ]
   },
-  "dbt-snowflake-warehouse-run": {
-    "section": "Clients",
-    "claim": "dbt-snowflake warehouse run",
-    "witnesses": ["ci:e2e-dbt"]
+  "informationschema-columns": {
+    "section": "Catalog",
+    "claim": "information_schema.columns",
+    "witnesses": [
+      "ci:parity"
+    ]
   },
-  "snowflake-target-toggle": {
-    "section": "Clients",
-    "claim": "snowflake-target toggle",
-    "witnesses": ["ci:e2e-snowflake-target"]
+  "show-functions": {
+    "section": "Catalog",
+    "claim": "SHOW FUNCTIONS",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "create-schema": {
+    "section": "Catalog",
+    "claim": "CREATE SCHEMA",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "create-show-suspend": {
+    "section": "Warehouses",
+    "claim": "CREATE / SHOW / SUSPEND",
+    "witnesses": [
+      "ci:e2e-sql"
+    ]
   }
 }
