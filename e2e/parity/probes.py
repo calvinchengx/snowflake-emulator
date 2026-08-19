@@ -29,6 +29,13 @@ PROBES = [
     ("SQL", "TO_DATE / TO_VARCHAR / TO_TIMESTAMP", "SELECT TO_DATE('2026-01-01') AS a, TO_VARCHAR(1) AS b, TO_TIMESTAMP('2026-01-01') AS c"),
     ("SQL", "DATEDIFF", "SELECT DATEDIFF(day, DATE '2026-01-01', DATE '2026-02-01') AS v"),
     ("SQL", "DATEADD", "SELECT DATEADD(day, 1, DATE '2026-01-01') AS v"),
+    ("SQL", "GENERATOR / SEQ4",
+     "SELECT seq4() AS n FROM table(generator(rowcount => 3))"),
+    ("SQL", "A date series, the way core's silver builds one",
+     "SELECT DATEADD(day, seq4(), p_t.d) AS rate_date FROM p_t, "
+     "table(generator(rowcount => 20000)) WHERE DATEADD(day, seq4(), p_t.d) <= p_t.d"),
+    ("SQL", "DATEADD(month, ...) is refused",
+     "SELECT DATEADD(month, 1, DATE '2026-01-01') AS v", "must_fail"),
     ("SQL", "LISTAGG / ARRAY_AGG", "SELECT LISTAGG(id, ',') AS a, ARRAY_AGG(id) AS b FROM p_t"),
     ("SQL", "MERGE", "MERGE INTO p_t t USING (SELECT 1 AS id) s ON t.id = s.id WHEN MATCHED THEN UPDATE SET t.id = 1"),
     ("SQL", "Decimal keeps its scale", "SELECT m FROM p_t"),
@@ -42,6 +49,8 @@ PROBES = [
      "SELECT f.value:sku::string AS sku FROM p_t, LATERAL FLATTEN(input => p_t.arr) f"),
     ("Semi-structured", "LATERAL FLATTEN over an array",
      "SELECT f.value::int AS v, f.index FROM LATERAL FLATTEN(input => [10,20]) f"),
+    ("Semi-structured", "ARRAY_GENERATE_RANGE",
+     "SELECT f.value::int AS i FROM LATERAL FLATTEN(input => ARRAY_GENERATE_RANGE(0, 3)) f"),
     ("Semi-structured", "PARSE_JSON", "SELECT PARSE_JSON('{\"a\":1}') AS v"),
     ("Semi-structured", "OBJECT_CONSTRUCT", "SELECT OBJECT_CONSTRUCT('a', 1) AS v"),
 
@@ -126,6 +135,13 @@ CAVEATS = {
         "happened -- Snowflake would report those as DELETE and INSERT rows, "
         "and answering without them would silently drop the change. "
         "METADATA$ACTION is always INSERT for the same reason."
+    ),
+    "DATEADD": (
+        "DAY, WEEK, HOUR, MINUTE and SECOND. MONTH, QUARTER and YEAR are "
+        "refused: every DuckDB spelling of them widens a DATE to a TIMESTAMP, "
+        "and a CASE cannot return two types, so the answer would carry the "
+        "wrong type for a DATE argument. A TIMESTAMP given to the day form is "
+        "an error here where Snowflake would answer."
     ),
     "PUT": (
         "A client-side upload protocol. This emulator takes the bytes from "
