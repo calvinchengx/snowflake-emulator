@@ -118,6 +118,14 @@ def key_for(feature: str) -> str:
     return text.strip("-")
 
 
+def cell(text: str) -> str:
+    """A pipe inside a cell ends the cell. The engine's own error text and a
+    caveat naming `'<n> SECOND | MINUTE | HOUR'` both carry one, and an
+    unescaped pipe silently splits the row into extra columns -- which moved
+    the status mark and left the table rendering as nonsense."""
+    return text.replace("|", "\\|")
+
+
 def render(rows: list[tuple[str, str, bool, str]]) -> str:
     lines = [
         "# Parity",
@@ -146,7 +154,7 @@ def render(rows: list[tuple[str, str, bool, str]]) -> str:
             detail = CAVEATS.get(feature, "")
             if not ok:
                 detail = note if not detail else f"{note} — {detail}"
-            lines.append(f"| {feature} | {detail} | {'🟢' if ok else '🔴'} |")
+            lines.append(f"| {cell(feature)} | {cell(detail)} | {'🟢' if ok else '🔴'} |")
         lines.append("")
     green = sum(1 for _, _, ok, _ in rows if ok)
     lines += [f"_{green} of {len(rows)} answered._", ""]

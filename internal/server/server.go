@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/calvinchengx/snowflake-emulator/internal/config"
 	"github.com/calvinchengx/snowflake-emulator/internal/engine"
@@ -29,6 +30,7 @@ type Server struct {
 	wh      map[string]warehouse
 	iceberg map[string]string
 	formats map[string]fileFormat
+	tasks   map[string]*task
 }
 
 type session struct {
@@ -56,6 +58,7 @@ func New(cfg config.Config) (*Server, error) {
 		tokens:  map[string]session{},
 		wh:      map[string]warehouse{},
 		iceberg: map[string]string{},
+		tasks:   map[string]*task{},
 	}
 	b, err := os.ReadFile(patPath)
 	if err != nil {
@@ -86,6 +89,10 @@ func New(cfg config.Config) (*Server, error) {
 	mux.HandleFunc("/iceberg/v1/namespaces", s.icebergNamespaces)
 	mux.HandleFunc("/iceberg/v1/namespaces/", s.icebergNamespace)
 	s.handler = mux
+	// The scheduler ticks far more often than the shortest schedule a task can
+	// declare, so a '1 SECOND' task is late by under a tick rather than by a
+	// whole period.
+	go s.scheduler(250 * time.Millisecond)
 	return s, nil
 }
 
@@ -382,6 +389,10 @@ func (s *Server) runSQL(w http.ResponseWriter, tok string, sess session, sqlText
 	}
 
 	if s.handleStageSQL(w, sqlText) {
+		return
+	}
+
+	if s.handleTaskSQL(w, sqlText) {
 		return
 	}
 

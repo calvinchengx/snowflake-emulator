@@ -71,7 +71,15 @@ PROBES = [
     ("Catalog", "GRANT / roles", "GRANT SELECT ON TABLE p_t TO ROLE p_role"),
 
     ("Orchestration", "CREATE TASK", "CREATE TASK p_task SCHEDULE = '1 minute' AS SELECT 1"),
+    ("Orchestration", "Task graphs (AFTER)", "CREATE TASK p_task_child AFTER p_task AS SELECT 2"),
+    ("Orchestration", "ALTER TASK RESUME / SUSPEND", "ALTER TASK p_task SUSPEND"),
+    ("Orchestration", "SHOW TASKS", "SHOW TASKS"),
     ("Orchestration", "EXECUTE TASK", "EXECUTE TASK p_task"),
+    ("Orchestration", "DROP TASK", "DROP TASK p_task_child"),
+    ("Orchestration", "USING CRON is refused",
+     "CREATE TASK p_cron SCHEDULE = 'USING CRON 0 9 * * * UTC' AS SELECT 1", "must_fail"),
+    ("Orchestration", "A task with neither SCHEDULE nor AFTER is refused",
+     "CREATE TASK p_orphan WAREHOUSE = parity_wh AS SELECT 1", "must_fail"),
     ("Orchestration", "CREATE STREAM", "CREATE STREAM p_stream ON TABLE p_t"),
     ("Orchestration", "Stored procedures", "CALL system$wait(1)"),
 
@@ -92,6 +100,19 @@ CAVEATS = {
         "value and index only. SEQ, KEY, PATH and THIS are not produced, and "
         "OUTER, RECURSIVE, PATH and MODE are refused by name because each "
         "changes which rows come back."
+    ),
+    "CREATE TASK": (
+        "SCHEDULE takes '<n> SECOND | MINUTE | HOUR'. USING CRON is refused by "
+        "name -- a cron expression means specific wall-clock times, and firing "
+        "on an interval instead would be a schedule that is not the one asked "
+        "for. WHEN is refused for the same reason in the other direction: a "
+        "predicate that is never evaluated makes a conditional task "
+        "unconditional."
+    ),
+    "EXECUTE TASK": (
+        "Runs the named task and everything downstream of it, as Snowflake "
+        "does. A resumed root task also fires on its own interval. "
+        "TASK_HISTORY() is not implemented."
     ),
     "PUT": (
         "A client-side upload protocol. This emulator takes the bytes from "

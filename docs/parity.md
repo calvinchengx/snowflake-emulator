@@ -83,8 +83,14 @@ the same run.
 
 | Feature | Detail | Status |
 |---|---|---|
-| CREATE TASK | duckdb: Parser Error: syntax error at or near "TASK" | 🔴 |
-| EXECUTE TASK | duckdb: Parser Error: syntax error at or near "p_task" | 🔴 |
+| CREATE TASK | SCHEDULE takes '<n> SECOND \| MINUTE \| HOUR'. USING CRON is refused by name -- a cron expression means specific wall-clock times, and firing on an interval instead would be a schedule that is not the one asked for. WHEN is refused for the same reason in the other direction: a predicate that is never evaluated makes a conditional task unconditional. | 🟢 |
+| Task graphs (AFTER) |  | 🟢 |
+| ALTER TASK RESUME / SUSPEND |  | 🟢 |
+| SHOW TASKS |  | 🟢 |
+| EXECUTE TASK | Runs the named task and everything downstream of it, as Snowflake does. A resumed root task also fires on its own interval. TASK_HISTORY() is not implemented. | 🟢 |
+| DROP TASK |  | 🟢 |
+| USING CRON is refused |  | 🟢 |
+| A task with neither SCHEDULE nor AFTER is refused |  | 🟢 |
 | CREATE STREAM | duckdb: Parser Error: syntax error at or near "STREAM" | 🔴 |
 | Stored procedures | duckdb: Catalog Error: Table Function with name system$wait does not exist! | 🔴 |
 
@@ -94,4 +100,4 @@ the same run.
 |---|---|---|
 | CREATE / SHOW / SUSPEND |  | 🟢 |
 
-_32 of 45 answered._
+_40 of 51 answered._
