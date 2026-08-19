@@ -56,6 +56,34 @@
       "ci:parity"
     ]
   },
+  "dateadd": {
+    "section": "SQL",
+    "claim": "DATEADD",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "generator-seq4": {
+    "section": "SQL",
+    "claim": "GENERATOR / SEQ4",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "a-date-series-the-way-core-s-silver-builds-one": {
+    "section": "SQL",
+    "claim": "A date series, the way core's silver builds one",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "dateadd-month-is-refused": {
+    "section": "SQL",
+    "claim": "DATEADD(month, ...) is refused",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
   "listagg-arrayagg": {
     "section": "SQL",
     "claim": "LISTAGG / ARRAY_AGG",

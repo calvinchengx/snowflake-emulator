@@ -56,6 +56,12 @@ func rewriteSQL(sql string, sess session) (string, string, bool, error) {
 	out = rewriteDateParts(out)
 	out = rewriteVariantTypes(out)
 	out = rewriteColonPaths(out)
+	out = rewriteGenerator(out)
+	added, aerr := rewriteDateAdd(out)
+	if aerr != nil {
+		return "", "", false, aerr
+	}
+	out = added
 	flat, err := rewriteFlatten(out)
 	if err != nil {
 		return "", "", false, err

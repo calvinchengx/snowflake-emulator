@@ -36,6 +36,11 @@ CREATE OR REPLACE MACRO to_double(x) AS CAST(x AS DOUBLE);
 CREATE OR REPLACE MACRO parse_json(x) AS CAST(x AS JSON);
 CREATE OR REPLACE MACRO array_size(x) AS len(x);
 CREATE OR REPLACE MACRO array_generate_range(a, b) AS range(a, b);
+CREATE OR REPLACE MACRO date_add_days(n, d) AS d + (n)::INTEGER;
+CREATE OR REPLACE MACRO date_add_weeks(n, d) AS d + ((n) * 7)::INTEGER;
+CREATE OR REPLACE MACRO date_add_hours(n, d) AS d + to_hours((n)::BIGINT);
+CREATE OR REPLACE MACRO date_add_minutes(n, d) AS d + to_minutes((n)::BIGINT);
+CREATE OR REPLACE MACRO date_add_seconds(n, d) AS d + to_seconds((n)::BIGINT);
 CREATE OR REPLACE MACRO charindex(needle, haystack) AS position(needle IN haystack);
 CREATE OR REPLACE MACRO is_null_value(x) AS x IS NULL;
 `

@@ -31,7 +31,10 @@ the same run.
 | IFF / NVL / NVL2 / ZEROIFNULL |  | 🟢 |
 | TO_DATE / TO_VARCHAR / TO_TIMESTAMP |  | 🟢 |
 | DATEDIFF |  | 🟢 |
-| DATEADD | duckdb: Catalog Error: Scalar Function with name dateadd does not exist! — DuckDB widens DATE + INTERVAL to TIMESTAMP unconditionally, and SQL unifies a CASE to one type, so no rewrite can return a DATE for a DATE and a TIMESTAMP for a TIMESTAMP. Left refused rather than answered with the wrong type. | 🔴 |
+| DATEADD | DAY, WEEK, HOUR, MINUTE and SECOND. MONTH, QUARTER and YEAR are refused: every DuckDB spelling of them widens a DATE to a TIMESTAMP, and a CASE cannot return two types, so the answer would carry the wrong type for a DATE argument. A TIMESTAMP given to the day form is an error here where Snowflake would answer. | 🟢 |
+| GENERATOR / SEQ4 |  | 🟢 |
+| A date series, the way core's silver builds one |  | 🟢 |
+| DATEADD(month, ...) is refused |  | 🟢 |
 | LISTAGG / ARRAY_AGG |  | 🟢 |
 | MERGE | duckdb: Parser Error: syntax error at or near "MERGE" | 🔴 |
 | Decimal keeps its scale |  | 🟢 |
@@ -105,4 +108,4 @@ the same run.
 |---|---|---|
 | CREATE / SHOW / SUSPEND |  | 🟢 |
 
-_46 of 56 answered._
+_50 of 59 answered._
