@@ -78,7 +78,7 @@ func run(duckdbPath, sql string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("duckdb binary not on PATH (SNOWFLAKE_DUCKDB_PATH=%s): %w", duckdbPath, err)
 	}
-	args := []string{"-json", "-c", sql}
+	args := []string{"-json", "-c", preludeFor(sql)}
 	if duckdbPath != ":memory:" {
 		args = append([]string{duckdbPath}, args...)
 	}
