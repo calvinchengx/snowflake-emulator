@@ -47,6 +47,7 @@ the same run.
 | Colon path with a cast |  | 🟢 |
 | LATERAL FLATTEN over VARIANT | value and index only. SEQ, KEY, PATH and THIS are not produced, and OUTER, RECURSIVE, PATH and MODE are refused by name because each changes which rows come back. | 🟢 |
 | LATERAL FLATTEN over an array |  | 🟢 |
+| ARRAY_GENERATE_RANGE |  | 🟢 |
 | PARSE_JSON |  | 🟢 |
 | OBJECT_CONSTRUCT | duckdb: Catalog Error: Scalar Function with name object_construct does not exist! | 🔴 |
 
@@ -104,4 +105,4 @@ the same run.
 |---|---|---|
 | CREATE / SHOW / SUSPEND |  | 🟢 |
 
-_45 of 55 answered._
+_46 of 56 answered._

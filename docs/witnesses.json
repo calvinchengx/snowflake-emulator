@@ -119,6 +119,13 @@
       "ci:parity"
     ]
   },
+  "arraygeneraterange": {
+    "section": "Semi-structured",
+    "claim": "ARRAY_GENERATE_RANGE",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
   "parsejson": {
     "section": "Semi-structured",
     "claim": "PARSE_JSON",

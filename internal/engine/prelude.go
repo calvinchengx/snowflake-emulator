@@ -35,6 +35,7 @@ CREATE OR REPLACE MACRO to_boolean(x) AS CAST(x AS BOOLEAN);
 CREATE OR REPLACE MACRO to_double(x) AS CAST(x AS DOUBLE);
 CREATE OR REPLACE MACRO parse_json(x) AS CAST(x AS JSON);
 CREATE OR REPLACE MACRO array_size(x) AS len(x);
+CREATE OR REPLACE MACRO array_generate_range(a, b) AS range(a, b);
 CREATE OR REPLACE MACRO charindex(needle, haystack) AS position(needle IN haystack);
 CREATE OR REPLACE MACRO is_null_value(x) AS x IS NULL;
 `

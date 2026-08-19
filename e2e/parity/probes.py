@@ -42,6 +42,8 @@ PROBES = [
      "SELECT f.value:sku::string AS sku FROM p_t, LATERAL FLATTEN(input => p_t.arr) f"),
     ("Semi-structured", "LATERAL FLATTEN over an array",
      "SELECT f.value::int AS v, f.index FROM LATERAL FLATTEN(input => [10,20]) f"),
+    ("Semi-structured", "ARRAY_GENERATE_RANGE",
+     "SELECT f.value::int AS i FROM LATERAL FLATTEN(input => ARRAY_GENERATE_RANGE(0, 3)) f"),
     ("Semi-structured", "PARSE_JSON", "SELECT PARSE_JSON('{\"a\":1}') AS v"),
     ("Semi-structured", "OBJECT_CONSTRUCT", "SELECT OBJECT_CONSTRUCT('a', 1) AS v"),
 
