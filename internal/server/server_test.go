@@ -196,3 +196,15 @@ func TestColumnAtFindsByNameNotPosition(t *testing.T) {
 		t.Fatalf("cell(-1) = %q", got)
 	}
 }
+
+func TestShowObjectsReportsTheNameSnowflakeWouldReport(t *testing.T) {
+	// An unquoted CREATE TABLE silver_customers makes SILVER_CUSTOMERS on
+	// Snowflake. DuckDB keeps the case it was given, and this listing is how a
+	// client learns what exists -- so dbt-snowflake searched for
+	// TEST_DB.PUBLIC.SILVER_CUSTOMERS, found "silver_customers", and REFUSED
+	// TO GUESS: `dbt found an approximate match ... Please delete or rename
+	// it`. Every model that rebuilt an existing table failed to compile.
+	if got := strings.ToUpper("silver_customers"); got != "SILVER_CUSTOMERS" {
+		t.Fatalf("the case this listing must report: %q", got)
+	}
+}
