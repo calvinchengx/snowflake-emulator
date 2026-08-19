@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/calvinchengx/snowflake-emulator/internal/config"
 	"github.com/calvinchengx/snowflake-emulator/internal/engine"
@@ -28,6 +29,9 @@ type Server struct {
 	tokens  map[string]session
 	wh      map[string]warehouse
 	iceberg map[string]string
+	formats map[string]fileFormat
+	tasks   map[string]*task
+	streams map[string]*stream
 }
 
 type session struct {
@@ -55,6 +59,8 @@ func New(cfg config.Config) (*Server, error) {
 		tokens:  map[string]session{},
 		wh:      map[string]warehouse{},
 		iceberg: map[string]string{},
+		tasks:   map[string]*task{},
+		streams: map[string]*stream{},
 	}
 	b, err := os.ReadFile(patPath)
 	if err != nil {
@@ -85,6 +91,10 @@ func New(cfg config.Config) (*Server, error) {
 	mux.HandleFunc("/iceberg/v1/namespaces", s.icebergNamespaces)
 	mux.HandleFunc("/iceberg/v1/namespaces/", s.icebergNamespace)
 	s.handler = mux
+	// The scheduler ticks far more often than the shortest schedule a task can
+	// declare, so a '1 SECOND' task is late by under a tick rather than by a
+	// whole period.
+	go s.scheduler(250 * time.Millisecond)
 	return s, nil
 }
 
@@ -309,7 +319,11 @@ func (s *Server) runSQL(w http.ResponseWriter, tok string, sess session, sqlText
 	if s.handleCatalogSQL(w, sqlText) {
 		return
 	}
-	rewritten, extra, special := rewriteSQL(sqlText, sess)
+	rewritten, extra, special, rerr := rewriteSQL(sqlText, sess)
+	if rerr != nil {
+		writeFail(w, http.StatusOK, "001015", rerr.Error())
+		return
+	}
 	if special && extra == "use_warehouse" {
 		sess.Warehouse = rewritten
 		if tok != "" {
@@ -376,6 +390,30 @@ func (s *Server) runSQL(w http.ResponseWriter, tok string, sess session, sqlText
 		}
 	}
 
+	if s.handleStageSQL(w, sqlText) {
+		return
+	}
+
+	if s.handleTaskSQL(w, sqlText) {
+		return
+	}
+
+	if s.handleStreamSQL(w, sqlText) {
+		return
+	}
+
+	// A stream reference becomes the rows it owes. This runs after the DDL
+	// above so that CREATE STREAM is not itself expanded, and before the
+	// engine so the engine never sees a name it has no table for.
+	if expanded, err := s.expandStreams(sqlText); err != nil {
+		writeFail(w, http.StatusOK, "001030", err.Error())
+		return
+	} else if expanded != sqlText {
+		defer s.advanceStreams(sqlText)
+		sqlText = expanded
+		upper = strings.ToUpper(sqlText)
+	}
+
 	if strings.HasPrefix(upper, "COPY INTO") {
 		sqlText, err := s.rewriteCopy(sqlText)
 		if err != nil {
@@ -387,7 +425,7 @@ func (s *Server) runSQL(w http.ResponseWriter, tok string, sess session, sqlText
 			writeFail(w, http.StatusOK, "001008", err.Error())
 			return
 		}
-		writeQueryOK(w, res.Columns, res.Rows, res.Dialect)
+		writeQueryTyped(w, res.Columns, res.Types, res.Rows, res.Dialect)
 		return
 	}
 
@@ -396,7 +434,7 @@ func (s *Server) runSQL(w http.ResponseWriter, tok string, sess session, sqlText
 		writeFail(w, http.StatusOK, "002001", err.Error())
 		return
 	}
-	writeQueryOK(w, res.Columns, res.Rows, res.Dialect)
+	writeQueryTyped(w, res.Columns, res.Types, res.Rows, res.Dialect)
 }
 
 var createWH = regexp.MustCompile(`(?i)CREATE\s+WAREHOUSE\s+(?:IF\s+NOT\s+EXISTS\s+)?([A-Za-z0-9_]+)`)
@@ -468,16 +506,29 @@ func (s *Server) handleCatalogSQL(w http.ResponseWriter, sqlText string) bool {
 			writeFail(w, http.StatusOK, "002001", err.Error())
 			return true
 		}
+		// BY NAME. This read the LAST column, which was a way of coping with
+		// column order that was randomised per request; it is stable now, and
+		// SHOW TABLES answers one column called `name` either way.
+		at := columnAt(res.Columns, "name")
 		rows := make([][]string, 0, len(res.Rows))
 		for _, r := range res.Rows {
-			name := ""
-			if len(r) > 0 {
-				name = r[len(r)-1]
-			}
+			name := cell(r, at)
 			if name == "" {
 				continue
 			}
-			rows = append(rows, []string{"TEST_DB", "PUBLIC", name, "TABLE", "N", "N"})
+			// UPPER-CASED, because that is the name Snowflake reports. An
+			// unquoted CREATE TABLE silver_customers makes SILVER_CUSTOMERS
+			// there; DuckDB keeps the case it was given, and this listing is
+			// how a client learns what exists.
+			//
+			// dbt-snowflake is the caller that made it matter. It searches for
+			// TEST_DB.PUBLIC.SILVER_CUSTOMERS, finds "silver_customers", and
+			// REFUSES TO GUESS -- `dbt found an approximate match ... Please
+			// delete or rename it` -- so every model that rebuilt an existing
+			// table failed to compile. Reporting the real name is safe because
+			// DuckDB resolves identifiers case-insensitively even when quoted,
+			// checked rather than assumed.
+			rows = append(rows, []string{"TEST_DB", "PUBLIC", strings.ToUpper(name), "TABLE", "N", "N"})
 		}
 		writeQueryOK(w, []string{"database_name", "schema_name", "name", "kind", "is_dynamic", "is_iceberg"}, rows, "duckdb")
 		return true
@@ -495,16 +546,20 @@ func (s *Server) handleCatalogSQL(w http.ResponseWriter, sqlText string) bool {
 			writeFail(w, http.StatusOK, "002001", err.Error())
 			return true
 		}
+		// BY NAME, for the reason above and one worse: DESCRIBE answers six
+		// columns, so reading r[0] and r[1] out of a randomised order gave the
+		// right pair twice in eight tries and ['<nil>','<nil>'] or
+		// ['INTEGER','YES'] the rest. Core's `money_is_never_stored_as_float`
+		// reflects types through exactly this statement.
+		nameAt := columnAt(res.Columns, "column_name")
+		typeAt := columnAt(res.Columns, "column_type")
 		rows := make([][]string, 0, len(res.Rows))
 		for _, r := range res.Rows {
-			colName, colType := "", "TEXT"
-			if len(r) > 0 {
-				colName = r[0]
+			colType := cell(r, typeAt)
+			if colType == "" {
+				colType = "TEXT"
 			}
-			if len(r) > 1 {
-				colType = r[1]
-			}
-			rows = append(rows, []string{colName, colType})
+			rows = append(rows, []string{cell(r, nameAt), colType})
 		}
 		writeQueryOK(w, []string{"name", "type"}, rows, "duckdb")
 		return true
@@ -513,18 +568,60 @@ func (s *Server) handleCatalogSQL(w http.ResponseWriter, sqlText string) bool {
 }
 
 func (s *Server) rewriteCopy(sqlText string) (string, error) {
-	// COPY INTO t FROM @~/file.csv  →  COPY t FROM 'stage/file.csv' (HEADER)
-	re := regexp.MustCompile(`(?i)COPY\s+INTO\s+(\S+)\s+FROM\s+'?@[^/]*/([^'\s]+)'?`)
-	m := re.FindStringSubmatch(sqlText)
+	trimmed := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(sqlText), ";"))
+	if reExternal.MatchString(trimmed) {
+		return "", fmt.Errorf("COPY INTO from an external stage is not implemented: " +
+			"this emulator serves internal stages from SNOWFLAKE_STAGE_DIR")
+	}
+	m := reCopyInto.FindStringSubmatch(trimmed)
 	if m == nil {
 		return "", fmt.Errorf("COPY INTO from internal stage only (SNOWFLAKE_STAGE_DIR)")
 	}
-	table, file := m[1], m[2]
-	src := filepath.Join(s.Cfg.StageDir, file)
-	if _, err := os.Stat(src); err != nil {
-		return "", fmt.Errorf("stage file %s: %w", src, err)
+	table, stage, path, tail := m[1], m[2], strings.TrimPrefix(m[3], "/"), m[4]
+
+	dir, err := s.stageDir(stage)
+	if err != nil {
+		return "", err
 	}
-	return fmt.Sprintf("COPY %s FROM '%s' (HEADER)", table, src), nil
+	src := filepath.Join(dir, filepath.FromSlash(path))
+	if _, err := os.Stat(src); err != nil {
+		return "", fmt.Errorf("stage file @%s/%s: %w", stage, path, err)
+	}
+
+	format, err := s.formatFor(tail)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("COPY %s FROM '%s' %s", table, src, format.duckdbOptions()), nil
+}
+
+// formatFor resolves the FILE_FORMAT clause: an inline option list, a named
+// format created earlier, or Snowflake's default when neither is given.
+func (s *Server) formatFor(tail string) (fileFormat, error) {
+	if m := reFmtInline.FindStringSubmatch(tail); m != nil {
+		if named := regexp.MustCompile(`(?i)FORMAT_NAME\s*=\s*'?([A-Za-z0-9_$.]+)'?`).FindStringSubmatch(m[1]); named != nil {
+			return s.namedFormat(named[1])
+		}
+		return parseFormat(m[1], defaultFormat())
+	}
+	if m := reFmtNamed.FindStringSubmatch(tail); m != nil {
+		name := m[1]
+		if name == "" {
+			name = m[2]
+		}
+		return s.namedFormat(name)
+	}
+	return defaultFormat(), nil
+}
+
+func (s *Server) namedFormat(name string) (fileFormat, error) {
+	s.mu.Lock()
+	f, ok := s.formats[strings.Trim(strings.ToUpper(name), `"`)]
+	s.mu.Unlock()
+	if !ok {
+		return fileFormat{}, fmt.Errorf("file format %s does not exist", name)
+	}
+	return f, nil
 }
 
 func (s *Server) auth(r *http.Request) (session, bool) {
@@ -551,6 +648,104 @@ func bearer(r *http.Request) string {
 	return ""
 }
 
+// snowflakeType maps one DuckDB type onto the rowtype a Snowflake client
+// expects, because the connector converts VALUES BY TYPE and the values
+// themselves travel as text either way.
+//
+// Calling everything "text" is what this replaces, and it was not cosmetic:
+// dbt's own result schema requires an integer for a test's `failures`, so all
+// 52 of the Contoso gold contracts died on `'0' is not of type 'integer'` --
+// PASS=0 ERROR=52, no verdict from any of them. Nothing about the numbers was
+// wrong; there was simply no way for a caller to learn what they were.
+//
+// `fixed` carries precision and scale, and that is the case worth being exact
+// about. DECIMAL(19,4) reaching a client as a float is the defect this family
+// has already met once, on another engine, in a money column.
+func snowflakeType(duck string) (string, int, int) {
+	up := strings.ToUpper(strings.TrimSpace(duck))
+	base := up
+	if i := strings.IndexByte(up, '('); i >= 0 {
+		base = up[:i]
+	}
+	switch base {
+	case "TINYINT", "SMALLINT", "INTEGER", "INT", "INT2", "INT4", "INT8",
+		"BIGINT", "HUGEINT", "UTINYINT", "USMALLINT", "UINTEGER", "UBIGINT":
+		return "fixed", 38, 0
+	case "DECIMAL", "NUMERIC":
+		p, s := 38, 0
+		if _, err := fmt.Sscanf(up[len(base):], "(%d,%d)", &p, &s); err != nil {
+			p, s = 38, 0
+		}
+		return "fixed", p, s
+	case "FLOAT", "REAL", "DOUBLE", "FLOAT4", "FLOAT8":
+		return "real", 0, 0
+	case "BOOLEAN", "BOOL", "LOGICAL":
+		return "boolean", 0, 0
+	case "DATE":
+		return "date", 0, 0
+	case "TIME":
+		return "time", 0, 0
+	case "TIMESTAMP", "DATETIME", "TIMESTAMP_NS", "TIMESTAMP_MS", "TIMESTAMP_S":
+		return "timestamp_ntz", 0, 0
+	case "TIMESTAMPTZ", "TIMESTAMP WITH TIME ZONE":
+		return "timestamp_ltz", 0, 0
+	case "BLOB", "BYTEA", "VARBINARY":
+		return "binary", 0, 0
+	default:
+		return "text", 0, 0
+	}
+}
+
+// columnAt finds a column by name, or -1. Reading a result positionally is
+// what made DESCRIBE non-deterministic; a name is what the caller meant.
+func columnAt(cols []string, want string) int {
+	for i, c := range cols {
+		if strings.EqualFold(c, want) {
+			return i
+		}
+	}
+	return -1
+}
+
+func cell(row []*string, at int) string {
+	if at < 0 || at >= len(row) || row[at] == nil {
+		return ""
+	}
+	return *row[at]
+}
+
+// writeQueryTyped answers an engine result: real types, and NULL as JSON null
+// rather than as some rendering of the word.
+func writeQueryTyped(w http.ResponseWriter, cols, types []string, rows [][]*string, dialect string) {
+	if len(cols) == 0 {
+		writeQueryOK(w, nil, nil, dialect)
+		return
+	}
+	rowtype := make([]map[string]any, len(cols))
+	for i, c := range cols {
+		duck := ""
+		if i < len(types) {
+			duck = types[i]
+		}
+		kind, precision, scale := snowflakeType(duck)
+		rowtype[i] = map[string]any{
+			"name": c, "type": kind, "nullable": true,
+			"length": 0, "precision": precision, "scale": scale,
+		}
+	}
+	out := make([][]any, 0, len(rows))
+	for _, r := range rows {
+		cells := make([]any, len(cols))
+		for i := range cols {
+			if i < len(r) && r[i] != nil {
+				cells[i] = *r[i]
+			}
+		}
+		out = append(out, cells)
+	}
+	writeQueryBody(w, rowtype, out, dialect)
+}
+
 func writeQueryOK(w http.ResponseWriter, cols []string, rows [][]string, dialect string) {
 	rowtype := make([]map[string]any, len(cols))
 	for i, c := range cols {
@@ -563,12 +758,24 @@ func writeQueryOK(w http.ResponseWriter, cols []string, rows [][]string, dialect
 		}
 		cols = []string{"status"}
 	}
+	out := make([][]any, 0, len(rows))
+	for _, r := range rows {
+		cells := make([]any, len(r))
+		for i, v := range r {
+			cells[i] = v
+		}
+		out = append(out, cells)
+	}
+	writeQueryBody(w, rowtype, out, dialect)
+}
+
+func writeQueryBody(w http.ResponseWriter, rowtype []map[string]any, rows [][]any, dialect string) {
 	// A zero-row result must serialise as [] and not null. A nil slice marshals
 	// to JSON null, and the Snowflake connector calls len() on rowset, so an
 	// empty answer with real columns came back as "object of type 'NoneType'
 	// has no len()" rather than an empty table.
 	if rows == nil {
-		rows = [][]string{}
+		rows = [][]any{}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"success": true,

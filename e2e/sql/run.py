@@ -85,7 +85,16 @@ def main() -> int:
         if row is None:
             raise SystemExit("no row")
         api(pat, "CREATE TABLE nums (n INTEGER)")
-        copy = api(pat, "COPY INTO nums FROM @~/nums.csv")
+        # SKIP_HEADER = 1 is now REQUIRED and that is the fix, not a chore.
+        # nums.csv opens with a line reading `n`, and Snowflake's default CSV
+        # format treats it as data -- so this used to pass only because the
+        # emulator hardcoded a header skip no consumer had asked for. Against
+        # the real thing the same statement fails on an INTEGER column.
+        copy = api(
+            pat,
+            "COPY INTO nums FROM @~/nums.csv "
+            "FILE_FORMAT = (TYPE = CSV, SKIP_HEADER = 1)",
+        )
         if not copy.get("success"):
             raise SystemExit(copy)
         print("e2e-sql: SELECT 1 dialect=duckdb; COPY INTO ok")

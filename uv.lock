@@ -7,6 +7,9 @@ resolution-markers = [
     "platform_python_implementation == 'PyPy'",
 ]
 
+[manifest]
+overrides = [{ name = "sqlparse", specifier = ">=0.6.0" }]
+
 [[package]]
 name = "agate"
 version = "1.9.1"
