@@ -166,23 +166,64 @@ func rewriteDateParts(sql string) string {
 // which leaves the same regions inside and outside.
 func outsideLiterals(sql string, f func(string) string) string {
 	var out strings.Builder
-	start, inLiteral := 0, false
-	for i := 0; i < len(sql); i++ {
-		if sql[i] != '\'' {
-			continue
-		}
-		if inLiteral {
-			out.WriteString(sql[start : i+1])
-		} else {
-			out.WriteString(f(sql[start:i]))
-			out.WriteByte('\'')
-		}
-		start, inLiteral = i+1, !inLiteral
+	start := 0
+	for _, r := range codeRegions(sql) {
+		out.WriteString(sql[start:r.from])
+		out.WriteString(f(sql[r.from:r.to]))
+		start = r.to
 	}
-	if inLiteral {
-		out.WriteString(sql[start:]) // unterminated: leave it for the engine to reject
-	} else {
-		out.WriteString(f(sql[start:]))
-	}
+	out.WriteString(sql[start:])
 	return out.String()
+}
+
+type region struct{ from, to int }
+
+// codeRegions returns the spans of sql that are neither a quoted string nor a
+// comment.
+//
+// COMMENTS ARE THE HALF THIS ORIGINALLY MISSED, and it cost a whole model. A
+// `--` comment containing an apostrophe -- "the rate in force on Saturday is
+// Friday's" -- flipped the scanner into thinking a string literal had opened,
+// so every rewrite after that point in the statement silently did not happen.
+// The generator, FLATTEN, DATEDIFF and the colon path all stopped, and DuckDB
+// met `table(generator(rowcount => 20000))` raw and said `syntax error at or
+// near "table"`. One apostrophe in one comment, and the engine looked like it
+// had lost a feature it has.
+//
+// So a comment is skipped as a unit, and a quote inside one is prose.
+func codeRegions(sql string) []region {
+	var out []region
+	start, i := 0, 0
+	for i < len(sql) {
+		switch {
+		case sql[i] == '\'':
+			out = append(out, region{start, i})
+			i++
+			for i < len(sql) && sql[i] != '\'' {
+				i++
+			}
+			i++ // the closing quote, or past the end when unterminated
+			start = i
+		case sql[i] == '-' && i+1 < len(sql) && sql[i+1] == '-':
+			out = append(out, region{start, i})
+			for i < len(sql) && sql[i] != '\n' {
+				i++
+			}
+			start = i
+		case sql[i] == '/' && i+1 < len(sql) && sql[i+1] == '*':
+			out = append(out, region{start, i})
+			i += 2
+			for i+1 < len(sql) && !(sql[i] == '*' && sql[i+1] == '/') {
+				i++
+			}
+			i = min(i+2, len(sql))
+			start = i
+		default:
+			i++
+		}
+	}
+	if start <= len(sql) {
+		out = append(out, region{start, len(sql)})
+	}
+	return out
 }
