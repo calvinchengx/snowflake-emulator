@@ -66,9 +66,18 @@ func rewriteFlatten(sql string) (string, error) {
 				end = after
 			}
 		}
+		// json_extract(to_json(X), '$[*]') rather than unnest(X) directly,
+		// because FLATTEN's argument is a VARIANT and this emulator spells
+		// VARIANT as DuckDB's JSON -- on which unnest refuses outright
+		// (`Binder Error: UNNEST not supported here`). to_json is the identity
+		// on JSON and converts a native LIST, so one spelling serves both, and
+		// the values come back as JSON exactly as Snowflake hands back VARIANT.
+		// Casts still work through it: `f.value::int` and `f.value:sku::string`
+		// were both checked against the container.
+		elems := fmt.Sprintf("json_extract(to_json(%s), '$[*]')", input)
 		replacement := fmt.Sprintf(
 			"%s(SELECT unnest(%s) AS value, unnest(range(len(%s))) AS index)",
-			prefix, input, input)
+			prefix, elems, elems)
 		sql = sql[:loc[0]] + replacement + sql[end:]
 		from = loc[0] + len(replacement)
 	}

@@ -54,6 +54,8 @@ func rewriteSQL(sql string, sess session) (string, string, bool, error) {
 	out = rePublicDot.ReplaceAllString(out, "")
 	out = rewriteCurrentFns(out, sess)
 	out = rewriteDateParts(out)
+	out = rewriteVariantTypes(out)
+	out = rewriteColonPaths(out)
 	flat, err := rewriteFlatten(out)
 	if err != nil {
 		return "", "", false, err
