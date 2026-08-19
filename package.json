@@ -1,0 +1,14 @@
+{
+  "name": "snowflake-emulator-workspace",
+  "private": true,
+  "packageManager": "pnpm@10.29.3",
+  "engines": {
+    "node": ">=22",
+    "pnpm": ">=10"
+  },
+  "scripts": {
+    "preinstall": "npx only-allow pnpm",
+    "docs:dev": "pnpm --filter snowflake-emulator-docs dev",
+    "docs:build": "pnpm --filter snowflake-emulator-docs build"
+  }
+}
