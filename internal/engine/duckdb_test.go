@@ -150,3 +150,45 @@ func ptrs(ss ...string) []*string {
 	}
 	return out
 }
+
+func TestASqlErrorIsAnErrorEvenWhenDuckdbExitsZero(t *testing.T) {
+	// The whole defect. duckdb v1.2.2 -- the version this image pins -- exits
+	// 0 after refusing a statement, so the exit code says the run was fine
+	// while stderr says it was not. Believing the code turned every
+	// unsupported statement into `status: ok`: CREATE TASK, time travel and
+	// TO_DATE all reported success in the shipped container.
+	err := failed([]byte(`Parser Error: syntax error at or near "THIS"`), nil)
+	if err == nil {
+		t.Fatal("a Parser Error on stderr with exit 0 must still be an error")
+	}
+	if !strings.Contains(err.Error(), "Parser Error") {
+		t.Fatalf("the diagnosis must reach the caller, got %q", err)
+	}
+}
+
+func TestSilenceIsSuccessEvenWhenNothingCameBack(t *testing.T) {
+	// The other half, and the reason an exit code cannot do this job: DDL and
+	// a SELECT matching no rows BOTH write empty stdout and empty stderr.
+	// Treating "no output" as failure would fail every CREATE TABLE.
+	if err := failed(nil, nil); err != nil {
+		t.Fatalf("empty stderr is a statement that worked, got %v", err)
+	}
+	if err := failed([]byte("   \n"), nil); err != nil {
+		t.Fatalf("whitespace on stderr is not a diagnosis, got %v", err)
+	}
+}
+
+func TestAProcessFailureStillSurfacesWhenStderrIsEmpty(t *testing.T) {
+	// Binary missing, killed, out of memory: no SQL diagnosis, but not a
+	// success either.
+	err := failed(nil, errTest)
+	if err == nil || !strings.Contains(err.Error(), "boom") {
+		t.Fatalf("a process failure must surface, got %v", err)
+	}
+}
+
+var errTest = errBoom{}
+
+type errBoom struct{}
+
+func (errBoom) Error() string { return "boom" }

@@ -34,6 +34,20 @@ func Exec(duckdbPath, sql string) (Result, error) {
 	}
 	out = bytes.TrimSpace(out)
 	if len(out) == 0 {
+		// NO ROWS IS NOT NO COLUMNS. duckdb prints nothing at all for a SELECT
+		// that matched nothing, exactly as it does for a CREATE TABLE, so the
+		// bytes cannot tell them apart -- and the server renders a result with
+		// no columns as `status: ok`, one row. An empty table therefore
+		// answered SELECT * with a single row saying "ok", which a client
+		// counts as data.
+		//
+		// DESCRIBE separates them: it answers for a query whose result is
+		// empty, and refuses for a statement that has no result at all.
+		if describable(sql) {
+			if cols, types, ok := describeShape(duckdbPath, sql); ok {
+				return Result{Dialect: "duckdb", Columns: cols, Types: types, Rows: [][]*string{}}, nil
+			}
+		}
 		return Result{Dialect: "duckdb", Columns: []string{}}, nil
 	}
 	cols, rows, perr := decodeRows(out)
@@ -73,14 +87,46 @@ func run(duckdbPath, sql string) ([]byte, error) {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	cmd.Env = os.Environ()
-	if err := cmd.Run(); err != nil {
-		msg := strings.TrimSpace(stderr.String())
-		if msg == "" {
-			msg = err.Error()
-		}
-		return nil, fmt.Errorf("duckdb: %s", msg)
+	runErr := cmd.Run()
+	if err := failed(stderr.Bytes(), runErr); err != nil {
+		return nil, err
 	}
 	return stdout.Bytes(), nil
+}
+
+// failed decides whether duckdb refused, WITHOUT TRUSTING ITS EXIT CODE.
+//
+// The pinned duckdb CLI (v1.2.2, the zip this image installs) exits 0 on a SQL
+// error. It writes the diagnosis to stderr and stops, so `cmd.Run()` returns
+// nil, stdout is empty, and a caller that believed the status reported an
+// empty result -- which this server renders as `status: ok`. Measured in the
+// shipped container:
+//
+//	duckdb -json -c "THIS IS NOT SQL"   ->  exit 0, stderr "Parser Error: ..."
+//
+// so `THIS IS NOT SQL AT ALL` came back over the API as success:true with
+// rowset [["ok"]]. A silent 200, which is the one thing this emulator's
+// doctrine forbids -- and it hid EVERY unsupported statement behind a pass:
+// CREATE TASK, time travel, TO_DATE, all "fine".
+//
+// It is version-dependent, which is what made it survive: the same binary
+// built for a developer's machine (homebrew, newer) exits 1, so a probe run
+// on the host answered honestly while the released image did not. Two builds
+// were compared and the difference was credited to the code.
+//
+// stderr is therefore the signal. duckdb writes nothing there for a statement
+// that worked, including DDL and a SELECT matching no rows -- both of which
+// produce empty stdout too, and are exactly what an exit code could not tell
+// apart from a refusal.
+func failed(stderr []byte, runErr error) error {
+	msg := strings.TrimSpace(string(stderr))
+	if msg != "" {
+		return fmt.Errorf("duckdb: %s", msg)
+	}
+	if runErr != nil {
+		return fmt.Errorf("duckdb: %s", runErr.Error())
+	}
+	return nil
 }
 
 // decodeRows reads duckdb's `-json` array while KEEPING THE COLUMN ORDER, and
@@ -192,23 +238,13 @@ func columnTypes(duckdbPath, sql string, cols []string, rows [][]*string) []stri
 	if !describable(sql) {
 		return types
 	}
-	out, err := run(duckdbPath, "DESCRIBE "+sql)
-	if err != nil {
-		return types
-	}
-	dcols, drows, err := decodeRows(bytes.TrimSpace(out))
-	if err != nil {
-		return types
-	}
-	name, typ := indexOf(dcols, "column_name"), indexOf(dcols, "column_type")
-	if name < 0 || typ < 0 {
+	dcols, dtypes, ok := describeShape(duckdbPath, sql)
+	if !ok {
 		return types
 	}
 	byName := map[string]string{}
-	for _, r := range drows {
-		if name < len(r) && typ < len(r) && r[name] != nil && r[typ] != nil {
-			byName[*r[name]] = *r[typ]
-		}
+	for i, c := range dcols {
+		byName[c] = dtypes[i]
 	}
 	for i, c := range cols {
 		if t, ok := byName[c]; ok {
@@ -216,6 +252,35 @@ func columnTypes(duckdbPath, sql string, cols []string, rows [][]*string) []stri
 		}
 	}
 	return types
+}
+
+// describeShape asks duckdb for a query's columns and their types without
+// running it. ok is false when the statement has no describable shape.
+func describeShape(duckdbPath, sql string) ([]string, []string, bool) {
+	out, err := run(duckdbPath, "DESCRIBE "+sql)
+	if err != nil {
+		return nil, nil, false
+	}
+	dcols, drows, err := decodeRows(bytes.TrimSpace(out))
+	if err != nil {
+		return nil, nil, false
+	}
+	name, typ := indexOf(dcols, "column_name"), indexOf(dcols, "column_type")
+	if name < 0 || typ < 0 {
+		return nil, nil, false
+	}
+	cols := make([]string, 0, len(drows))
+	types := make([]string, 0, len(drows))
+	for _, r := range drows {
+		if name < len(r) && typ < len(r) && r[name] != nil && r[typ] != nil {
+			cols = append(cols, *r[name])
+			types = append(types, *r[typ])
+		}
+	}
+	if len(cols) == 0 {
+		return nil, nil, false
+	}
+	return cols, types, true
 }
 
 func describable(sql string) bool {
