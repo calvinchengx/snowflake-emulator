@@ -516,7 +516,19 @@ func (s *Server) handleCatalogSQL(w http.ResponseWriter, sqlText string) bool {
 			if name == "" {
 				continue
 			}
-			rows = append(rows, []string{"TEST_DB", "PUBLIC", name, "TABLE", "N", "N"})
+			// UPPER-CASED, because that is the name Snowflake reports. An
+			// unquoted CREATE TABLE silver_customers makes SILVER_CUSTOMERS
+			// there; DuckDB keeps the case it was given, and this listing is
+			// how a client learns what exists.
+			//
+			// dbt-snowflake is the caller that made it matter. It searches for
+			// TEST_DB.PUBLIC.SILVER_CUSTOMERS, finds "silver_customers", and
+			// REFUSES TO GUESS -- `dbt found an approximate match ... Please
+			// delete or rename it` -- so every model that rebuilt an existing
+			// table failed to compile. Reporting the real name is safe because
+			// DuckDB resolves identifiers case-insensitively even when quoted,
+			// checked rather than assumed.
+			rows = append(rows, []string{"TEST_DB", "PUBLIC", strings.ToUpper(name), "TABLE", "N", "N"})
 		}
 		writeQueryOK(w, []string{"database_name", "schema_name", "name", "kind", "is_dynamic", "is_iceberg"}, rows, "duckdb")
 		return true
