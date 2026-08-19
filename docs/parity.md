@@ -91,7 +91,11 @@ the same run.
 | DROP TASK |  | 🟢 |
 | USING CRON is refused |  | 🟢 |
 | A task with neither SCHEDULE nor AFTER is refused |  | 🟢 |
-| CREATE STREAM | duckdb: Parser Error: syntax error at or near "STREAM" | 🔴 |
+| CREATE STREAM | APPEND-ONLY, and it proves it rather than assuming it. DuckDB keeps no change log, so the stream remembers the first rowid it has not shown and a checksum of the rows it has. If a row before that point is updated or deleted the stream REFUSES TO BE READ, naming what happened -- Snowflake would report those as DELETE and INSERT rows, and answering without them would silently drop the change. METADATA$ACTION is always INSERT for the same reason. | 🟢 |
+| Reading a stream |  | 🟢 |
+| SYSTEM$STREAM_HAS_DATA |  | 🟢 |
+| SHOW STREAMS |  | 🟢 |
+| DROP STREAM |  | 🟢 |
 | Stored procedures | duckdb: Catalog Error: Table Function with name system$wait does not exist! | 🔴 |
 
 ## Warehouses
@@ -100,4 +104,4 @@ the same run.
 |---|---|---|
 | CREATE / SHOW / SUSPEND |  | 🟢 |
 
-_40 of 51 answered._
+_45 of 55 answered._

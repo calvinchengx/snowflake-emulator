@@ -31,6 +31,7 @@ type Server struct {
 	iceberg map[string]string
 	formats map[string]fileFormat
 	tasks   map[string]*task
+	streams map[string]*stream
 }
 
 type session struct {
@@ -59,6 +60,7 @@ func New(cfg config.Config) (*Server, error) {
 		wh:      map[string]warehouse{},
 		iceberg: map[string]string{},
 		tasks:   map[string]*task{},
+		streams: map[string]*stream{},
 	}
 	b, err := os.ReadFile(patPath)
 	if err != nil {
@@ -394,6 +396,22 @@ func (s *Server) runSQL(w http.ResponseWriter, tok string, sess session, sqlText
 
 	if s.handleTaskSQL(w, sqlText) {
 		return
+	}
+
+	if s.handleStreamSQL(w, sqlText) {
+		return
+	}
+
+	// A stream reference becomes the rows it owes. This runs after the DDL
+	// above so that CREATE STREAM is not itself expanded, and before the
+	// engine so the engine never sees a name it has no table for.
+	if expanded, err := s.expandStreams(sqlText); err != nil {
+		writeFail(w, http.StatusOK, "001030", err.Error())
+		return
+	} else if expanded != sqlText {
+		defer s.advanceStreams(sqlText)
+		sqlText = expanded
+		upper = strings.ToUpper(sqlText)
 	}
 
 	if strings.HasPrefix(upper, "COPY INTO") {

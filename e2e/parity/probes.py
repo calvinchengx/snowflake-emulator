@@ -81,6 +81,10 @@ PROBES = [
     ("Orchestration", "A task with neither SCHEDULE nor AFTER is refused",
      "CREATE TASK p_orphan WAREHOUSE = parity_wh AS SELECT 1", "must_fail"),
     ("Orchestration", "CREATE STREAM", "CREATE STREAM p_stream ON TABLE p_t"),
+    ("Orchestration", "Reading a stream", "SELECT count(*) FROM p_stream"),
+    ("Orchestration", "SYSTEM$STREAM_HAS_DATA", "SELECT SYSTEM$STREAM_HAS_DATA('p_stream') AS has"),
+    ("Orchestration", "SHOW STREAMS", "SHOW STREAMS"),
+    ("Orchestration", "DROP STREAM", "DROP STREAM p_stream"),
     ("Orchestration", "Stored procedures", "CALL system$wait(1)"),
 
     ("Warehouses", "CREATE / SHOW / SUSPEND", "SHOW WAREHOUSES"),
@@ -113,6 +117,15 @@ CAVEATS = {
         "Runs the named task and everything downstream of it, as Snowflake "
         "does. A resumed root task also fires on its own interval. "
         "TASK_HISTORY() is not implemented."
+    ),
+    "CREATE STREAM": (
+        "APPEND-ONLY, and it proves it rather than assuming it. DuckDB keeps no "
+        "change log, so the stream remembers the first rowid it has not shown "
+        "and a checksum of the rows it has. If a row before that point is "
+        "updated or deleted the stream REFUSES TO BE READ, naming what "
+        "happened -- Snowflake would report those as DELETE and INSERT rows, "
+        "and answering without them would silently drop the change. "
+        "METADATA$ACTION is always INSERT for the same reason."
     ),
     "PUT": (
         "A client-side upload protocol. This emulator takes the bytes from "
