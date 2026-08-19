@@ -12,6 +12,21 @@ target = ["snowflake-target", "pytest>=8.3,<10"]
 
 [tool.uv]
 package = false
+# sqlparse reaches this lock ONLY through dbt-core, which declares
+# `sqlparse<0.6.0`. Four advisories (GHSA-prg7-hcfm-mfcr, GHSA-pwgv-4x5q-6m9f,
+# GHSA-f2ff-p2ww-7p4p, GHSA-3496-9g83-7v6x) all name 0.6.0 as the first patched
+# version, so no dbt release exists to upgrade INTO that takes a fixed
+# sqlparse. A constraint cannot resolve this -- narrowing cannot satisfy
+# `<0.6.0` and `>=0.6.0` at once -- so the upper bound has to be overridden.
+#
+# Deliberate deviation, measured rather than assumed: dbt uses sqlparse in one
+# place (`dbt/compilation.py`), and `inject_ctes_into_sql` returns
+# byte-identical output under 0.5.5 and 0.6.0. e2e-dbt runs real dbt from this
+# lock and is the local check.
+#
+# Re-check when dbt-core relaxes the bound: DELETE this override then rather
+# than leave it quietly pinning the ecosystem.
+override-dependencies = ["sqlparse>=0.6.0"]
 
 [tool.uv.sources]
 snowflake-target = { path = "python/snowflake-target" }
