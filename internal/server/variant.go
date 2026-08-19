@@ -25,7 +25,12 @@ var (
 	// A cast straight after a path: v:a::string. Snowflake hands back the
 	// value itself there, not its JSON spelling, so "a@x.com" must not arrive
 	// with its quotes still on.
-	reTrailingCast = regexp.MustCompile(`^::\s*([A-Za-z_][A-Za-z0-9_]*)`)
+	// The type may carry precision: `v:amount::decimal(19,4)`. Without the
+	// parenthesised part the cast closed early and `(19,4)` was left dangling
+	// after it -- `CAST(... AS decimal)(19,4)` -- which the engine reported as
+	// `syntax error at or near "("`, a message that points at the arguments
+	// rather than at the cast that lost them.
+	reTrailingCast = regexp.MustCompile(`^::\s*([A-Za-z_][A-Za-z0-9_]*(?:\s*\([^)]*\))?)`)
 )
 
 // rewriteVariantTypes maps Snowflake's semi-structured column types onto
