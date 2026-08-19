@@ -273,6 +273,41 @@
       "ci:parity"
     ]
   },
+  "create-stream": {
+    "section": "Orchestration",
+    "claim": "CREATE STREAM",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "reading-a-stream": {
+    "section": "Orchestration",
+    "claim": "Reading a stream",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "system-streamhasdata": {
+    "section": "Orchestration",
+    "claim": "SYSTEM$STREAM_HAS_DATA",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "show-streams": {
+    "section": "Orchestration",
+    "claim": "SHOW STREAMS",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "drop-stream": {
+    "section": "Orchestration",
+    "claim": "DROP STREAM",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
   "create-show-suspend": {
     "section": "Warehouses",
     "claim": "CREATE / SHOW / SUSPEND",
