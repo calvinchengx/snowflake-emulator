@@ -10,7 +10,8 @@ func TestFlattenBecomesUnnest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "SELECT f.value FROM LATERAL (SELECT unnest(t.arr) AS value, unnest(range(len(t.arr))) AS index) f"
+	want := "SELECT f.value FROM LATERAL (SELECT unnest(json_extract(to_json(t.arr), '$[*]')) AS value, " +
+		"unnest(range(len(json_extract(to_json(t.arr), '$[*]')))) AS index) f"
 	if got != want {
 		t.Fatalf("\n got %q\nwant %q", got, want)
 	}
@@ -25,7 +26,7 @@ func TestFlattenKeepsNestedCallsWhole(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(got, "unnest(split(coalesce(x, 'a,b'), ','))") {
+	if !strings.Contains(got, "to_json(split(coalesce(x, 'a,b'), ','))") {
 		t.Fatalf("the argument did not survive: %q", got)
 	}
 	if strings.Count(got, "(") != strings.Count(got, ")") {
@@ -39,7 +40,7 @@ func TestParenthesesInsideStringLiteralsDoNotCount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(got, "unnest(split(x, ')'))") {
+	if !strings.Contains(got, "to_json(split(x, ')'))") {
 		t.Fatalf("a paren inside a literal ended the argument early: %q", got)
 	}
 }
@@ -62,7 +63,7 @@ func TestPositionalInputIsAccepted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(got, "unnest(a.b)") {
+	if !strings.Contains(got, "to_json(a.b)") {
 		t.Fatalf("positional input not read: %q", got)
 	}
 }
