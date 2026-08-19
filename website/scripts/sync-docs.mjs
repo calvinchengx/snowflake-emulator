@@ -79,40 +79,25 @@ function convert(srcPath, name) {
 }
 
 function writeIndex() {
-  const body = rewriteLinks(
-    `Local emulator of a **Databricks workspace** in a single Go binary — ` +
-      `PAT and this process's own OIDC, workspace files, Jobs, SQL warehouses, ` +
-      `and an attached Spark engine. The bet is the family's: **terminate the ` +
-      `public REST, attach a real engine, refuse what you cannot compute.** ` +
-      `Entra is an optional federated issuer, not a required STS.\n\n` +
-      `:::caution\nLocal development tool only — self-signed TLS, a seeded admin PAT. ` +
-      `It emulates the workspace **contract**, not a security boundary. Run it on ` +
-      `\`localhost\` only. \`token=dev\` is 401.\n:::\n\n` +
-      `## Start here\n\n` +
-      `- [Doctrine](00-doctrine.md) — the founding constraint\n` +
-      `- [Quickstart](01-quickstart.md) — seeded PAT, official SDK \`Me\`, \`token=dev\` is 401\n` +
-      `- [Installation](02-installation.md) — source, GHCR, family compose\n` +
-      `- [Architecture](03-architecture.md) — this process vs Sail vs UC vs vault\n` +
-      `- [Configuration](04-configuration.md) — every \`DATABRICKS_*\` variable\n` +
-      `- [One toggle](21-real-databricks-toggle.md) — \`DATABRICKS_TARGET=emulator\\|real\`, names in, ids out\n` +
-      `- [TLS and hosts](05-tls-and-hosts.md) — self-signed cert, HTTP opt-out\n` +
-      `- [Identity](06-identity.md) — PAT, emulator OIDC, federated JWT\n` +
-      `- [Workspace and files](07-workspace-and-files.md) — SOURCE/PYTHON, workspace-files, DBFS\n` +
-      `- [Jobs and the Spark attach](08-jobs-and-spark.md) — Sail; no engine means fail, never SUCCESS\n` +
-      `- [Secrets](09-secrets.md) — persist, injection, AKV read-through\n` +
-      `- [SQL warehouses and MCP](10-sql-and-mcp.md) — dialect spark-sql, not Photon\n` +
-      `- [Clusters and Connect](11-clusters-and-connect.md) — session handle; gRPC URL is not the HTTP agent\n` +
-      `- [Unity Catalog](12-unity-catalog.md) — UC OSS proxy; grants stay 501\n` +
-      `- [Testing](13-testing.md) — what \`e2e-sdk\` / \`e2e-terraform\` / \`e2e-engine\` / \`e2e-delta\` / \`e2e-uc\` each prove\n` +
-      `- [Family integration](14-family-integration.md) — entra, keyvault, fabric activities, chain test\n` +
-      `- [Roadmap](15-roadmap.md) — next honest attaches; not implemented\n` +
-      `- [Parity ledger](parity.md) — catalog is the workspace REST API reference\n` +
-      `- [Parity history](${BASE}parity-history/) — snapshots from git tags\n`,
-    'index',
+  // Render the repo's own docs/index.md rather than a hardcoded landing page.
+  //
+  // This file was copied from databricks-emulator and its writeIndex() kept
+  // that repo's title, description, prose and chapter list, so the published
+  // home page announced a "Databricks workspace" and linked to pages that do
+  // not exist here. Reading docs/index.md means the landing page cannot drift
+  // from the repo again: there is only one copy of it.
+  const src = join(DOCS_SRC, 'index.md');
+  const raw = readFileSync(src, 'utf8');
+  const match = /^---\n([\s\S]*?)\n---\n?/.exec(raw);
+  if (!match) {
+    throw new Error('sync-docs: docs/index.md needs frontmatter with a title');
+  }
+  const frontmatter = match[1].replace(/\neditUrl:.*$/m, '');
+  const body = rewriteLinks(rewriteRepoLinks(raw.slice(match[0].length), 'index'), 'index');
+  writeFileSync(
+    join(OUT, 'index.md'),
+    `---\n${frontmatter}\neditUrl: ${JSON.stringify(`${REPO}/edit/main/docs/index.md`)}\n---\n\n` + body,
   );
-  const frontmatter =
-    `---\ntitle: Databricks Emulator\ndescription: A local emulator of a Databricks workspace — PAT and OIDC identity, workspace files, Jobs, and an attached Spark engine — refuse what you cannot compute.\neditUrl: false\n---\n\n`;
-  writeFileSync(join(OUT, 'index.md'), frontmatter + body);
 }
 
 rmSync(OUT, { recursive: true, force: true });
