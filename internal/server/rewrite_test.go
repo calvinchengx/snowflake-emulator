@@ -23,3 +23,42 @@ func TestExtractSQLNested(t *testing.T) {
 		t.Fatalf("got %q", s)
 	}
 }
+
+func TestDatediffPartBecomesAString(t *testing.T) {
+	// Snowflake takes the part as a bare keyword; DuckDB reads that as a
+	// column and answers `Binder Error: Referenced column "day" not found`.
+	cases := map[string]string{
+		"SELECT DATEDIFF(day, a, b)":    "SELECT date_diff('day', a, b)",
+		"select datediff(month, a, b)":  "select date_diff('month', a, b)",
+		"SELECT DATEDIFF( year , a, b)": "SELECT date_diff('year', a, b)",
+		"SELECT DATEDIFF(day,a,b)":      "SELECT date_diff('day',a,b)",
+	}
+	for in, want := range cases {
+		if got := rewriteDateParts(in); got != want {
+			t.Errorf("%q ->\n got %q\nwant %q", in, got, want)
+		}
+	}
+}
+
+func TestDatediffLeavesTheOtherArgumentsAlone(t *testing.T) {
+	// Only the first argument is touched. Nested calls and commas inside
+	// string literals in arguments two and three are DuckDB's to parse --
+	// which is the whole reason the rest of the shim is macros rather than
+	// regexes.
+	in := "SELECT DATEDIFF(day, TO_DATE(x), coalesce(y, TO_DATE('2026-01-01')))"
+	want := "SELECT date_diff('day', TO_DATE(x), coalesce(y, TO_DATE('2026-01-01')))"
+	if got := rewriteDateParts(in); got != want {
+		t.Errorf("\n got %q\nwant %q", got, want)
+	}
+}
+
+func TestNothingElseNamedDatediffIsTouched(t *testing.T) {
+	for _, in := range []string{
+		"SELECT my_datediff_helper(day, a, b)",
+		"SELECT 'DATEDIFF(day, a, b)' AS literal_text",
+	} {
+		if got := rewriteDateParts(in); got != in {
+			t.Errorf("%q was rewritten to %q", in, got)
+		}
+	}
+}
