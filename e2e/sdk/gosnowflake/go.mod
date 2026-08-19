@@ -1,6 +1,6 @@
 module github.com/calvinchengx/snowflake-emulator/e2e/sdk/gosnowflake
 
-go 1.25.0
+go 1.26.6
 
 require github.com/snowflakedb/gosnowflake v1.19.1
 
