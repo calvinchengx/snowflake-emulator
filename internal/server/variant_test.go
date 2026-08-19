@@ -91,3 +91,19 @@ func TestTwoPathsInOneStatement(t *testing.T) {
 		t.Fatalf("\n got %q\nwant %q", got, want)
 	}
 }
+
+func TestAParameterisedCastKeepsItsArguments(t *testing.T) {
+	// A money column is the case that matters: silver casts an exploded
+	// unit_price to decimal(19,4), and dropping the precision would either
+	// fail to parse or -- worse -- succeed with a different type.
+	cases := map[string]string{
+		"SELECT v:amount::decimal(19,4) FROM raw": "SELECT CAST(json_extract_string(v, '$.amount') AS decimal(19,4)) FROM raw",
+		"SELECT v:n::varchar(10) FROM raw":        "SELECT CAST(json_extract_string(v, '$.n') AS varchar(10)) FROM raw",
+		"SELECT v:n::int FROM raw":                "SELECT CAST(json_extract_string(v, '$.n') AS int) FROM raw",
+	}
+	for in, want := range cases {
+		if got := rewriteColonPaths(in); got != want {
+			t.Errorf("%q ->\n got %q\nwant %q", in, got, want)
+		}
+	}
+}
