@@ -217,6 +217,62 @@
       "ci:parity"
     ]
   },
+  "create-task": {
+    "section": "Orchestration",
+    "claim": "CREATE TASK",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "task-graphs-after": {
+    "section": "Orchestration",
+    "claim": "Task graphs (AFTER)",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "alter-task-resume-suspend": {
+    "section": "Orchestration",
+    "claim": "ALTER TASK RESUME / SUSPEND",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "show-tasks": {
+    "section": "Orchestration",
+    "claim": "SHOW TASKS",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "execute-task": {
+    "section": "Orchestration",
+    "claim": "EXECUTE TASK",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "drop-task": {
+    "section": "Orchestration",
+    "claim": "DROP TASK",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "using-cron-is-refused": {
+    "section": "Orchestration",
+    "claim": "USING CRON is refused",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "a-task-with-neither-schedule-nor-after-is-refused": {
+    "section": "Orchestration",
+    "claim": "A task with neither SCHEDULE nor AFTER is refused",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
   "create-show-suspend": {
     "section": "Warehouses",
     "claim": "CREATE / SHOW / SUSPEND",
