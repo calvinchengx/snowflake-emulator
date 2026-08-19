@@ -14,5 +14,12 @@ e2e/dbt/project/target/
 e2e/dbt/project/logs/
 python/snowflake-target/build/
 
+# The docs site's dependencies. Every other family member ignores these; this
+# repo did not, so a `git add -A` in a worktree that had run `pnpm install`
+# staged 22k files.
+node_modules/
+website/dist/
+.astro/
+
 # Local tooling
 .nwave/
