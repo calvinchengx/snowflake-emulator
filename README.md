@@ -12,7 +12,20 @@ SNOWFLAKE_DUCKDB_PATH=:memory: make run
 
 `data/admin.pat` is the seeded password. `token=dev` is 401.
 
-See [docs/00-doctrine.md](docs/00-doctrine.md) and [docs/parity.md](docs/parity.md).
+## Docs
+
+[Doctrine](docs/00-doctrine.md) · [Quickstart](docs/01-quickstart.md) ·
+[Installation](docs/02-installation.md) · [Architecture](docs/03-architecture.md) ·
+[Configuration](docs/04-configuration.md)
+
+**Reference** — [SQL surface](docs/05-sql-surface.md) ·
+[Stages and COPY INTO](docs/06-stages-and-copy.md) ·
+[VARIANT and the colon path](docs/07-semi-structured.md) ·
+[Tasks and streams](docs/08-tasks-and-streams.md) · [Clients](docs/09-clients.md)
+
+**The project** — [Testing](docs/10-testing.md) ·
+[Family integration](docs/11-family-integration.md) · [Roadmap](docs/12-roadmap.md) ·
+[Parity](docs/parity.md), measured against the image rather than written.
 
 Apache-2.0.
 

@@ -1,0 +1,73 @@
+# Tasks and streams
+
+Snowflake's own scheduler, and the change a table has seen. Together they are
+how a Snowflake pipeline runs without an external orchestrator.
+
+## Task graphs
+
+```sql
+CREATE TASK t_root SCHEDULE = '1 MINUTE' AS INSERT INTO log VALUES ('root');
+CREATE TASK t_mid  AFTER t_root AS INSERT INTO log VALUES ('mid');
+CREATE TASK t_leaf AFTER t_mid  AS INSERT INTO log VALUES ('leaf');
+
+EXECUTE TASK t_root;   -- Task t_root executed, 3 task(s) in the graph.
+SELECT step FROM log;  -- root, mid, leaf
+```
+
+`EXECUTE TASK` runs the named task and everything downstream of it, as
+Snowflake does. Dependency order is enforced rather than hoped for, and a cycle
+is **refused rather than run** — Snowflake rejects one at creation, and running
+it here would not stop.
+
+`ALTER TASK … RESUME | SUSPEND`, `SHOW TASKS` and `DROP TASK` do what they say.
+
+### The schedule actually fires
+
+`SCHEDULE = '<n> SECOND | MINUTE | HOUR'`, and a resumed root task runs on its
+interval. Storing an interval and never acting on it would be a task that
+reports created, reports started, and never runs — a consumer would wait
+forever with nothing to read. Measured: 0 rows before `RESUME`, 4 after four
+seconds at one per second, and `SUSPEND` stops it.
+
+`USING CRON` is **refused by name**. A cron expression means specific
+wall-clock times, and firing on an interval instead would be a schedule that is
+not the one asked for.
+
+`WHEN` is refused for the mirror-image reason: a predicate that is never
+evaluated turns a conditional task into an unconditional one.
+
+A task with neither `SCHEDULE` nor `AFTER` is refused — it could never run, and
+storing it would be a task that reports created and does nothing forever.
+
+## Streams
+
+```sql
+CREATE STREAM s_src ON TABLE src;
+INSERT INTO src VALUES (2, 'b');
+
+SELECT SYSTEM$STREAM_HAS_DATA('s_src');      -- true
+SELECT id, v, "METADATA$ACTION" FROM s_src;  -- 2, b, INSERT
+SELECT count(*) FROM s_src;                  -- still 1: a SELECT does not consume
+INSERT INTO sink SELECT id, v FROM s_src;    -- DML does
+SELECT count(*) FROM s_src;                  -- 0
+```
+
+### Append-only, and it proves it
+
+DuckDB keeps no change log, so a stream remembers the first `rowid` it has not
+shown — exactly right for a table only inserted into, and wrong the moment a
+row before that point is updated or deleted.
+
+So it also remembers a checksum of the rows it has already accounted for, and
+**refuses to be read** if that checksum moves:
+
+```
+stream s_src cannot be read: rows in src before its offset have been updated
+or deleted, and this emulator tracks appends only.
+```
+
+A stream that quietly missed an `UPDATE` is the worst answer available: a
+pipeline built on it would drop changes and report success. `METADATA$ACTION`
+is always `INSERT` for the same reason.
+
+`TASK_HISTORY()` and stored procedures are not implemented.
