@@ -28,6 +28,7 @@ type Server struct {
 	tokens  map[string]session
 	wh      map[string]warehouse
 	iceberg map[string]string
+	formats map[string]fileFormat
 }
 
 type session struct {
@@ -376,6 +377,10 @@ func (s *Server) runSQL(w http.ResponseWriter, tok string, sess session, sqlText
 		}
 	}
 
+	if s.handleStageSQL(w, sqlText) {
+		return
+	}
+
 	if strings.HasPrefix(upper, "COPY INTO") {
 		sqlText, err := s.rewriteCopy(sqlText)
 		if err != nil {
@@ -518,18 +523,60 @@ func (s *Server) handleCatalogSQL(w http.ResponseWriter, sqlText string) bool {
 }
 
 func (s *Server) rewriteCopy(sqlText string) (string, error) {
-	// COPY INTO t FROM @~/file.csv  →  COPY t FROM 'stage/file.csv' (HEADER)
-	re := regexp.MustCompile(`(?i)COPY\s+INTO\s+(\S+)\s+FROM\s+'?@[^/]*/([^'\s]+)'?`)
-	m := re.FindStringSubmatch(sqlText)
+	trimmed := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(sqlText), ";"))
+	if reExternal.MatchString(trimmed) {
+		return "", fmt.Errorf("COPY INTO from an external stage is not implemented: " +
+			"this emulator serves internal stages from SNOWFLAKE_STAGE_DIR")
+	}
+	m := reCopyInto.FindStringSubmatch(trimmed)
 	if m == nil {
 		return "", fmt.Errorf("COPY INTO from internal stage only (SNOWFLAKE_STAGE_DIR)")
 	}
-	table, file := m[1], m[2]
-	src := filepath.Join(s.Cfg.StageDir, file)
-	if _, err := os.Stat(src); err != nil {
-		return "", fmt.Errorf("stage file %s: %w", src, err)
+	table, stage, path, tail := m[1], m[2], strings.TrimPrefix(m[3], "/"), m[4]
+
+	dir, err := s.stageDir(stage)
+	if err != nil {
+		return "", err
 	}
-	return fmt.Sprintf("COPY %s FROM '%s' (HEADER)", table, src), nil
+	src := filepath.Join(dir, filepath.FromSlash(path))
+	if _, err := os.Stat(src); err != nil {
+		return "", fmt.Errorf("stage file @%s/%s: %w", stage, path, err)
+	}
+
+	format, err := s.formatFor(tail)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("COPY %s FROM '%s' %s", table, src, format.duckdbOptions()), nil
+}
+
+// formatFor resolves the FILE_FORMAT clause: an inline option list, a named
+// format created earlier, or Snowflake's default when neither is given.
+func (s *Server) formatFor(tail string) (fileFormat, error) {
+	if m := reFmtInline.FindStringSubmatch(tail); m != nil {
+		if named := regexp.MustCompile(`(?i)FORMAT_NAME\s*=\s*'?([A-Za-z0-9_$.]+)'?`).FindStringSubmatch(m[1]); named != nil {
+			return s.namedFormat(named[1])
+		}
+		return parseFormat(m[1], defaultFormat())
+	}
+	if m := reFmtNamed.FindStringSubmatch(tail); m != nil {
+		name := m[1]
+		if name == "" {
+			name = m[2]
+		}
+		return s.namedFormat(name)
+	}
+	return defaultFormat(), nil
+}
+
+func (s *Server) namedFormat(name string) (fileFormat, error) {
+	s.mu.Lock()
+	f, ok := s.formats[strings.Trim(strings.ToUpper(name), `"`)]
+	s.mu.Unlock()
+	if !ok {
+		return fileFormat{}, fmt.Errorf("file format %s does not exist", name)
+	}
+	return f, nil
 }
 
 func (s *Server) auth(r *http.Request) (session, bool) {
