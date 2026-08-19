@@ -139,13 +139,15 @@ func skipCloseParen(s string, from int) (int, bool) {
 	return from, false
 }
 
-// insideLiteral reports whether pos falls inside a single-quoted string.
+// insideLiteral reports whether pos falls outside every code region -- that
+// is, inside a string OR inside a comment. Both are text this rewrite has no
+// business reaching into, and treating a comment's apostrophe as a quote is
+// what made every later rewrite in a statement silently stop.
 func insideLiteral(s string, pos int) bool {
-	in := false
-	for i := 0; i < pos && i < len(s); i++ {
-		if s[i] == '\'' {
-			in = !in
+	for _, r := range codeRegions(s) {
+		if pos >= r.from && pos < r.to {
+			return false
 		}
 	}
-	return in
+	return true
 }

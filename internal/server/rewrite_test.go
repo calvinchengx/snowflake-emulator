@@ -1,6 +1,9 @@
 package server
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestRewriteTransientAndCurrent(t *testing.T) {
 	sess := session{Database: "TEST_DB", Schema: "PUBLIC", Warehouse: "wh1"}
@@ -61,4 +64,49 @@ func TestNothingElseNamedDatediffIsTouched(t *testing.T) {
 			t.Errorf("%q was rewritten to %q", in, got)
 		}
 	}
+}
+
+func TestAnApostropheInACommentDoesNotStopEveryLaterRewrite(t *testing.T) {
+	// THE ONE THAT COST A MODEL. A `--` comment containing "Friday's" opened a
+	// string literal as far as the scanner was concerned, so every rewrite
+	// after it in the statement silently did not happen -- and DuckDB met
+	// `table(generator(...))` raw and reported a syntax error for a feature
+	// this emulator has.
+	sql := "-- the rate in force on Saturday is Friday's\n" +
+		"SELECT DATEDIFF(day, a, b) FROM t"
+	got := rewriteDateParts(sql)
+	if !strings.Contains(got, "date_diff('day', a, b)") {
+		t.Fatalf("the rewrite stopped at the comment:\n%s", got)
+	}
+	if !strings.Contains(got, "Friday's") {
+		t.Fatalf("the comment was altered: %q", got)
+	}
+}
+
+func TestCommentsAreNotRewrittenEither(t *testing.T) {
+	sql := "-- DATEDIFF(day, a, b) is what this does\nSELECT 1"
+	if got := rewriteDateParts(sql); got != sql {
+		t.Fatalf("rewrote inside a comment:\n%s", got)
+	}
+	block := "/* DATEDIFF(day, a, b) */ SELECT DATEDIFF(day, a, b)"
+	got := rewriteDateParts(block)
+	if strings.Count(got, "date_diff") != 1 {
+		t.Fatalf("a block comment was rewritten: %q", got)
+	}
+}
+
+func TestStringLiteralsStillWin(t *testing.T) {
+	sql := "SELECT 'DATEDIFF(day, a, b)' AS note, DATEDIFF(day, a, b)"
+	got := rewriteDateParts(sql)
+	if strings.Count(got, "date_diff") != 1 {
+		t.Fatalf("expected exactly the unquoted call to move: %q", got)
+	}
+	if !strings.Contains(got, "'DATEDIFF(day, a, b)'") {
+		t.Fatalf("the literal changed: %q", got)
+	}
+}
+
+func TestAnUnterminatedLiteralDoesNotEatTheRest(t *testing.T) {
+	// Left for the engine to reject, but it must not panic or loop.
+	_ = rewriteDateParts("SELECT 'oops, DATEDIFF(day, a, b)")
 }
