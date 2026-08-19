@@ -24,18 +24,18 @@ var (
 	rePublicDot    = regexp.MustCompile(`(?i)\bPUBLIC\.`)
 )
 
-func rewriteSQL(sql string, sess session) (string, string, bool) {
+func rewriteSQL(sql string, sess session) (string, string, bool, error) {
 	trimmed := strings.TrimSpace(sql)
 	upper := strings.ToUpper(trimmed)
 
 	if m := reUseWH.FindStringSubmatch(trimmed); m != nil {
-		return m[1], "use_warehouse", true
+		return m[1], "use_warehouse", true, nil
 	}
 	if reUseDB.MatchString(trimmed) || reAlterSession.MatchString(trimmed) || reTxn.MatchString(trimmed) || reCommentOn.MatchString(trimmed) || reCreateDB.MatchString(trimmed) {
-		return "SELECT 'ok' AS status", "", false
+		return "SELECT 'ok' AS status", "", false, nil
 	}
 	if reShowTerse.MatchString(trimmed) {
-		return "SHOW TABLES", "", false
+		return "SHOW TABLES", "", false, nil
 	}
 	out := reTransientOR.ReplaceAllString(trimmed, "CREATE OR REPLACE TABLE")
 	out = reTransient.ReplaceAllString(out, "CREATE TABLE")
@@ -45,7 +45,7 @@ func rewriteSQL(sql string, sess session) (string, string, bool) {
 		if m := reCreateSchema.FindStringSubmatch(out); m != nil {
 			name := m[1]
 			if strings.EqualFold(name, "PUBLIC") || strings.EqualFold(name, "MAIN") {
-				return "SELECT 'ok' AS status", "", false
+				return "SELECT 'ok' AS status", "", false, nil
 			}
 			out = fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", name)
 		}
@@ -54,7 +54,11 @@ func rewriteSQL(sql string, sess session) (string, string, bool) {
 	out = rePublicDot.ReplaceAllString(out, "")
 	out = rewriteCurrentFns(out, sess)
 	out = rewriteDateParts(out)
-	return out, "", false
+	flat, err := rewriteFlatten(out)
+	if err != nil {
+		return "", "", false, err
+	}
+	return flat, "", false, nil
 }
 
 func rewriteCurrentFns(sql string, sess session) string {
