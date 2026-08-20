@@ -48,6 +48,61 @@ START ITSELF. Refusing made a consumer invent a `SCHEDULE` it did not want,
 which is the opposite of what an honest refusal is for: this emulator may refuse
 what is genuinely absent upstream, never what is merely absent here.
 
+## `TASK_HISTORY`, and why the rest of this page was not enough
+
+```sql
+SELECT NAME, STATE, ERROR_MESSAGE
+FROM TABLE(INFORMATION_SCHEMA.TASK_HISTORY(TASK_NAME => 'T_ROOT'))
+ORDER BY COMPLETED_TIME DESC LIMIT 1;
+```
+
+Everything above this section was green before this existed, and a consumer
+still could not drive a pipeline from it. A driver could create a graph, resume
+it, fire it with `EXECUTE TASK` — and never learn whether it worked. **That is
+the reason the Snowflake Tasks cell in this family is named for an orchestrator
+it does not use**: not missing tasks, missing answers.
+
+It is a real relation, not a canned reply, so `WHERE`, `ORDER BY`, `LIMIT`,
+joins and aggregates over it are the engine's own:
+
+| column | |
+|---|---|
+| `NAME` | the task, uppercased as Snowflake reports an unquoted identifier |
+| `STATE` | `SUCCEEDED`, `FAILED` or `SKIPPED` |
+| `QUERY_TEXT` | the statement the task holds |
+| `ERROR_MESSAGE` | why it failed, or which predecessor failed for a skip |
+| `SCHEDULED_TIME` | when the graph run began |
+| `QUERY_START_TIME` | when this task began, `NULL` for a skip |
+| `COMPLETED_TIME` | when it finished, `NULL` for a skip |
+| `SCHEDULED_FROM` | `EXECUTE TASK` or `SCHEDULE` |
+
+`TASK_NAME` and `RESULT_LIMIT` are honoured. Any other argument is **refused by
+name**, because silently dropping `SCHEDULED_TIME_RANGE_START` would answer a
+question about the last hour with the whole history and look right doing it.
+
+**This column list is a subset, and the missing ones are absent rather than
+`NULL`.** A column that is always `NULL` reads as "this run had no value"
+instead of "this emulator does not track it".
+
+### A failure is written down, and so is what never ran
+
+When a task in a graph fails, everything downstream of it is recorded
+`SKIPPED`, naming the task that failed. Leaving those out would read as "not
+started yet" to anything polling, which is how a driver waits forever on a
+graph that already gave up. A skipped run carries no start and no completion,
+because it never began.
+
+### The scheduler writes to it too
+
+`EXECUTE TASK` reported a failure to its caller. The scheduler **swallowed**
+one: it broke out of the loop, logged nothing, stored nothing, so a resumed
+root task failing every minute was indistinguishable from one succeeding every
+minute. Both paths now run through the same recorded code, because a history
+the unattended path does not write to is the one that matters least.
+
+The history keeps the last 1000 runs. A consumer polling for a run it started
+will always find it; one auditing a long history will not.
+
 ## Streams
 
 ```sql

@@ -72,6 +72,9 @@ PROBES = [
     ("Stages", "REMOVE", "REMOVE @~/parity.csv"),
     ("Stages", "INFER_SCHEMA", "SELECT * FROM TABLE(INFER_SCHEMA(LOCATION => '@~/parity.csv'))"),
 
+    ("Tasks and streams", "TASK_HISTORY",
+     "SELECT NAME, STATE FROM TABLE(INFORMATION_SCHEMA.TASK_HISTORY(RESULT_LIMIT => 10))"),
+
     ("Catalog", "SHOW TABLES", "SHOW TABLES"),
     ("Catalog", "DESCRIBE TABLE", "DESCRIBE TABLE p_t"),
     ("Catalog", "information_schema.columns",
@@ -128,7 +131,7 @@ CAVEATS = {
     "EXECUTE TASK": (
         "Runs the named task and everything downstream of it, as Snowflake "
         "does. A resumed root task also fires on its own interval. "
-        "TASK_HISTORY() is not implemented."
+        "Its runs, and the runs of everything downstream, are readable through TASK_HISTORY()."
     ),
     "CREATE STREAM": (
         "APPEND-ONLY, and it proves it rather than assuming it. DuckDB keeps no "
@@ -185,4 +188,8 @@ WITNESSES = {
     # off from the fact.
     "A prefix is refused": ["ci:parity", "go:TestAPrefixIsRefusedByNameRatherThanByDuckdb"],
     "PUT": ["ci:e2e-put", "go:TestPutAnswersTheContractBothDriversRead"],
+    # ci:parity proves the function ANSWERS. What a driver needs is that it
+    # answers CORRECTLY about a failure, and only the e2e runs a graph that
+    # fails and reads the FAILED and SKIPPED rows back.
+    "TASK_HISTORY": ["ci:e2e-tasks", "go:TestASkippedRunHasNoStartAndNoCompletion"],
 }

@@ -233,6 +233,14 @@
       "go:TestPutAnswersTheContractBothDriversRead"
     ]
   },
+  "taskhistory": {
+    "section": "Tasks and streams",
+    "claim": "TASK_HISTORY",
+    "witnesses": [
+      "ci:e2e-tasks",
+      "go:TestASkippedRunHasNoStartAndNoCompletion"
+    ]
+  },
   "show-tables": {
     "section": "Catalog",
     "claim": "SHOW TABLES",

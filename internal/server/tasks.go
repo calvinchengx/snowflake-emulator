@@ -120,7 +120,7 @@ func (s *Server) handleTaskSQL(w http.ResponseWriter, sqlText string) bool {
 	}
 
 	if m := reExecTask.FindStringSubmatch(trimmed); m != nil {
-		s.runTaskGraph(w, m[1])
+		s.runTaskGraph(w, m[1], "EXECUTE TASK")
 		return true
 	}
 	return false
@@ -195,25 +195,64 @@ func everyInterval(spec string) (time.Duration, error) {
 
 // runTaskGraph runs the named task and then everything downstream of it, which
 // is what EXECUTE TASK does on Snowflake: a root's run carries its graph.
-func (s *Server) runTaskGraph(w http.ResponseWriter, name string) {
+func (s *Server) runTaskGraph(w http.ResponseWriter, name, from string) {
 	order, err := s.graphFrom(taskKey(name))
 	if err != nil {
 		writeFail(w, http.StatusOK, "002003", err.Error())
 		return
 	}
-	for _, t := range order {
-		if _, err := engine.Exec(s.Cfg.DuckDB, t.SQL); err != nil {
-			writeFail(w, http.StatusOK, "001021",
-				fmt.Sprintf("task %s failed: %s", t.Name, err.Error()))
-			return
-		}
-		s.mu.Lock()
-		t.LastRun = time.Now().UTC()
-		s.mu.Unlock()
+	if err := s.runOrder(order, from); err != nil {
+		writeFail(w, http.StatusOK, "001021", err.Error())
+		return
 	}
 	writeQueryOK(w, []string{"status"},
 		[][]string{{fmt.Sprintf("Task %s executed, %d task(s) in the graph.", name, len(order))}},
 		"duckdb")
+}
+
+// runOrder runs a graph in dependency order and WRITES DOWN WHAT HAPPENED.
+//
+// Both callers share it on purpose. EXECUTE TASK reported a failure to the
+// caller and the scheduler swallowed one entirely -- `break` out of the loop,
+// nothing logged, nothing stored -- so a resumed root task that failed every
+// minute was indistinguishable from one that succeeded every minute. That is
+// the shape this repository keeps finding, and history is only worth having if
+// the unattended path writes to it too.
+func (s *Server) runOrder(order []*task, from string) error {
+	scheduled := time.Now().UTC()
+	for i, t := range order {
+		start := time.Now().UTC()
+		if _, err := engine.Exec(s.Cfg.DuckDB, t.SQL); err != nil {
+			s.record(taskRun{
+				Name: taskKey(t.Name), State: "FAILED", QueryText: t.SQL,
+				ErrorMessage:  err.Error(),
+				ScheduledTime: scheduled, StartTime: start,
+				CompletedTime: time.Now().UTC(), ScheduledFrom: from,
+			})
+			// EVERYTHING DOWNSTREAM IS SKIPPED, AND IT SAYS SO. Those tasks do
+			// not run on Snowflake either when a predecessor fails, and
+			// leaving them out of the history would read as "not started yet"
+			// to anything polling -- which is how a driver waits forever on a
+			// graph that already gave up.
+			for _, sk := range order[i+1:] {
+				s.record(taskRun{
+					Name: taskKey(sk.Name), State: "SKIPPED", QueryText: sk.SQL,
+					ErrorMessage:  fmt.Sprintf("upstream task %s failed", t.Name),
+					ScheduledTime: scheduled, ScheduledFrom: from,
+				})
+			}
+			return fmt.Errorf("task %s failed: %s", t.Name, err.Error())
+		}
+		s.record(taskRun{
+			Name: taskKey(t.Name), State: "SUCCEEDED", QueryText: t.SQL,
+			ScheduledTime: scheduled, StartTime: start,
+			CompletedTime: time.Now().UTC(), ScheduledFrom: from,
+		})
+		s.mu.Lock()
+		t.LastRun = time.Now().UTC()
+		s.mu.Unlock()
+	}
+	return nil
 }
 
 // graphFrom returns the root and its descendants in dependency order. A cycle
@@ -286,11 +325,11 @@ func (s *Server) scheduler(tick time.Duration) {
 			if err != nil {
 				continue
 			}
-			for _, d := range order {
-				if _, err := engine.Exec(s.Cfg.DuckDB, d.SQL); err != nil {
-					break
-				}
-			}
+			// The error is deliberately not propagated -- there is nobody to
+			// return it to -- but it is no longer LOST: runOrder writes the
+			// failure and the skips into the history, which is the only place
+			// an unattended run can be seen from.
+			_ = s.runOrder(order, "SCHEDULE")
 		}
 	}
 }
