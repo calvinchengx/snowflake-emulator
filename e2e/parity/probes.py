@@ -65,6 +65,9 @@ PROBES = [
     ("Stages", "External stages are refused", "CREATE STAGE p_ext URL = 's3://b/p'", "must_fail"),
     ("Stages", "An unsupported format option is refused",
      "COPY INTO p_nums FROM @~/parity.csv FILE_FORMAT = (TYPE = CSV, RECORD_DELIMITER = '|')", "must_fail"),
+    ("Stages", "A prefix is refused",
+     "COPY INTO p_nums FROM '@~/parity_feed/' FILE_FORMAT = (TYPE = CSV, SKIP_HEADER = 1)",
+     "must_fail"),
     ("Stages", "PUT", "PUT file:///tmp/parity.csv @~"),
     ("Stages", "REMOVE", "REMOVE @~/parity.csv"),
     ("Stages", "INFER_SCHEMA", "SELECT * FROM TABLE(INFER_SCHEMA(LOCATION => '@~/parity.csv'))"),
@@ -143,6 +146,14 @@ CAVEATS = {
         "wrong type for a DATE argument. A TIMESTAMP given to the day form is "
         "an error here where Snowflake would answer."
     ),
+    "A prefix is refused": (
+        "Real Snowflake resolves a stage reference by prefix and loads EVERY "
+        "file under it, which is the ordinary way to load a paged feed. This "
+        "resolves one name and the `.gz` AUTO_COMPRESS leaves, so a prefix is "
+        "refused BY NAME. It used to come back as duckdb's own words about a "
+        "path inside the container, which left the reader to work out that the "
+        "feature was missing rather than the file."
+    ),
     "PUT": (
         "The driver uploads the bytes itself, as it does against a real "
         "account: the answer names LOCAL_FS and the stage directory, and the "
@@ -168,5 +179,10 @@ WITNESSES = {
     "COPY INTO from an internal stage": ["ci:e2e-sql"],
     "COPY INTO with a named format": ["ci:e2e-sql"],
     "CREATE / SHOW / SUSPEND": ["ci:e2e-sql"],
+    # ci:parity proves it is REFUSED. The claim is that it is refused BY NAME,
+    # and only the Go test reads the message, so the row cites both. A witness
+    # that does not check the thing the row claims is the assertion one level
+    # off from the fact.
+    "A prefix is refused": ["ci:parity", "go:TestAPrefixIsRefusedByNameRatherThanByDuckdb"],
     "PUT": ["ci:e2e-put", "go:TestPutAnswersTheContractBothDriversRead"],
 }

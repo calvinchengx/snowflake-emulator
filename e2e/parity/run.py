@@ -77,6 +77,16 @@ def measure() -> list[tuple[str, str, bool, str]]:
     stage = Path(tempfile.mkdtemp(prefix="sf-parity-"))
     (stage / "parity.csv").write_text("n\n1\n2\n", encoding="utf-8")
     (stage / "parity.json").write_text('{"id":1,"customer":{"email":"a@x.com"}}\n', encoding="utf-8")
+    # A PAGED FEED, because "a prefix is refused" is only a claim worth making
+    # when the prefix HAS files under it. Refusing an empty directory would
+    # pass against an emulator that merely failed to find anything, which is
+    # the weaker statement and the one already covered by the missing-file
+    # case.
+    feed = stage / "parity_feed"
+    feed.mkdir()
+    for part in ("part_0.csv", "part_1.csv"):
+        (feed / part).write_text("n\n1\n2\n", encoding="utf-8")
+    feed.chmod(0o777)
     stage.chmod(0o777)
 
     sh("docker", "build", "-t", IMAGE, ".", cwd=ROOT)
