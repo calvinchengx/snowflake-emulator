@@ -38,6 +38,40 @@ SKIP_HEADER=1  →  [['1'], ['2']]
 That is the worst shape of infidelity to leave in place, because the consumer
 does not find out here. It finds out in production.
 
+## `PUT` puts the driver back in the loop
+
+```sql
+PUT file:///tmp/orders.csv @~;
+COPY INTO orders FROM @~/orders.csv FILE_FORMAT = (TYPE = CSV, SKIP_HEADER = 1);
+```
+
+This was missing for a long time, and the cost was not the statement. Without
+it a consumer cannot get a file into a stage the way a real consumer does, so
+every pipeline built here reached for the stage **directory** instead: write
+the bytes to a shared mount, let `COPY INTO` find them. That code does not move
+to a real account, where no such directory exists. The emulator's convenience
+had become the consumer's architecture, and nothing failed to say so.
+
+`PUT` is Snowflake's own client-side protocol. The driver recognises the
+statement before sending it, asks where the bytes go, and uploads them itself.
+The answer names a location type, and both drivers this emulator is witnessed
+against implement `LOCAL_FS` beside S3, Azure and GCS. So the answer is
+`LOCAL_FS` and the stage directory, and the **driver's own file transfer agent**
+does the copying, over the same code path it uses against a real account.
+
+`AUTO_COMPRESS` defaults to `TRUE`, as it does there, so
+
+```
+PUT file:///tmp/orders.csv @~   →   the stage holds orders.csv.gz
+```
+
+Answering `FALSE` would be more convenient here and would teach a consumer the
+wrong stage contents. Because real Snowflake resolves a stage path by prefix,
+`COPY INTO ... FROM @~/orders.csv` finds that compressed file there; this
+emulator resolves one name and its `.gz` spelling, which is **narrower**. A
+prefix naming several files loads all of them on a real account and is not
+implemented here, rather than being half-implemented as "the first one".
+
 ## An option that cannot be honoured is refused
 
 Silently dropping `FIELD_DELIMITER` reads every line into column one and

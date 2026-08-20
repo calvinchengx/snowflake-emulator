@@ -10,6 +10,7 @@ config file is a second place for the truth to live.
 | `SNOWFLAKE_DATA_DIR` | `./data` | where the seeded PAT is written |
 | `SNOWFLAKE_DUCKDB_PATH` | *(unset)* | the warehouse file, or `:memory:` |
 | `SNOWFLAKE_STAGE_DIR` | `./stages` | the internal stage's root |
+| `SNOWFLAKE_STAGE_CLIENT_DIR` | unset | the stage's root **as the client sees it**, for `PUT` |
 | `SNOWFLAKE_POLARIS_URL` | *(unset)* | an Iceberg REST catalog to register into |
 
 ## The engine must be named
@@ -23,6 +24,19 @@ CLI process. Unset, SQL is refused with the variable's name in the message.
 Use it for a login probe, not for a pipeline.
 
 ## The stage is a directory
+
+`SNOWFLAKE_STAGE_CLIENT_DIR` matters for exactly one statement. `PUT` is a
+client-side upload: the server answers with a directory and the **driver**
+copies the bytes into it. A path this process knows is therefore only useful if
+it means the same thing on the client's filesystem. It does when the emulator
+is a host binary, or when client and server share a container, and those are
+the cases where this can stay unset. It does not when the emulator runs in a
+container and the client does not, because the server knows `/stages` and the
+client cannot write there. Set this to the host side of the bind mount.
+
+Getting it wrong does not corrupt anything: the bytes land somewhere the server
+cannot see, and the `COPY INTO` that follows fails naming the file it could not
+find.
 
 `SNOWFLAKE_STAGE_DIR` is the user stage (`@~`). A named stage is a directory
 inside it, created by `CREATE STAGE`. External stages — `s3://`, `azure://` —

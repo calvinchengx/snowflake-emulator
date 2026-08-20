@@ -100,6 +100,11 @@ func (s *Server) handleStageSQL(w http.ResponseWriter, sqlText string) bool {
 		return true
 	}
 
+	if m := rePut.FindStringSubmatch(trimmed); m != nil {
+		s.handlePut(w, m)
+		return true
+	}
+
 	if m := reList.FindStringSubmatch(trimmed); m != nil {
 		s.listStage(w, m[1])
 		return true
@@ -225,3 +230,182 @@ func (f fileFormat) duckdbOptions() string {
 }
 
 func quote(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
+
+// PUT: the one statement whose bytes this process does not write.
+//
+// A client-side upload protocol, and the reason it was worth implementing is
+// not the statement itself. Without it a consumer cannot put a file into a
+// stage the way a real consumer does, so every pipeline built against this
+// emulator reached for the stage DIRECTORY instead -- writing bytes to a
+// shared mount and letting COPY INTO find them. That code does not move to a
+// real account, where no such directory exists. The emulator's convenience had
+// become the consumer's architecture.
+//
+// HOW IT WORKS, and it is Snowflake's own mechanism rather than an invention:
+// the driver recognises PUT before sending it, asks the server where to put
+// the bytes, and uploads them itself. The answer names a location type. Both
+// drivers this emulator is witnessed against -- gosnowflake and
+// snowflake-connector-python -- implement LOCAL_FS alongside S3, Azure and
+// GCS, so answering LOCAL_FS with the stage directory makes the CLIENT do a
+// real upload over its real code path. What is exercised is the driver's file
+// transfer agent, not a shortcut around it.
+//
+// THE PATH IS THE CLIENT'S, NOT OURS. The driver copies into the directory
+// this response names, so the name has to mean something on the client's
+// filesystem. It does for a host binary. It does not when the emulator is in a
+// container and the client is not, which is what SNOWFLAKE_STAGE_CLIENT_DIR
+// is for. Get it wrong and the bytes land where COPY INTO cannot see them --
+// which fails loudly at COPY INTO, because that statement stats the file it
+// was given rather than reporting a cheerful zero rows.
+var (
+	rePut       = regexp.MustCompile(`(?i)^PUT\s+'?([a-z0-9+.-]+://[^'\s]+)'?\s+'?@([A-Za-z0-9_$~][A-Za-z0-9_$~./]*)'?\s*(.*)$`)
+	rePutOption = regexp.MustCompile(`(?i)([A-Za-z_]+)\s*=\s*('[^']*'|[A-Za-z0-9_]+)`)
+)
+
+// putOptions is the subset of PUT's option list that changes what the driver
+// does. An option Snowflake accepts and this cannot honour is refused by name,
+// the same rule the file formats keep: a silently dropped OVERWRITE would
+// report an upload that did not replace what was there.
+type putOptions struct {
+	AutoCompress      bool
+	Overwrite         bool
+	Parallel          int
+	SourceCompression string
+}
+
+func defaultPutOptions() putOptions {
+	// Snowflake's defaults, not this emulator's convenience. AUTO_COMPRESS is
+	// TRUE there, so `PUT file://orders.csv @~` lands `orders.csv.gz` in the
+	// stage and a consumer who assumed otherwise is wrong on both systems.
+	return putOptions{AutoCompress: true, Parallel: 4, SourceCompression: "AUTO_DETECT"}
+}
+
+func parsePutOptions(tail string) (putOptions, error) {
+	o := defaultPutOptions()
+	for _, m := range rePutOption.FindAllStringSubmatch(tail, -1) {
+		key := strings.ToUpper(m[1])
+		val := strings.Trim(m[2], "'")
+		switch key {
+		case "AUTO_COMPRESS":
+			o.AutoCompress = strings.EqualFold(val, "TRUE")
+		case "OVERWRITE":
+			o.Overwrite = strings.EqualFold(val, "TRUE")
+		case "PARALLEL":
+			n, err := strconv.Atoi(val)
+			if err != nil || n < 1 {
+				return o, fmt.Errorf("PARALLEL must be a positive integer, got %q", val)
+			}
+			o.Parallel = n
+		case "SOURCE_COMPRESSION":
+			o.SourceCompression = strings.ToUpper(val)
+		default:
+			return o, fmt.Errorf("PUT option %s is not implemented", key)
+		}
+	}
+	return o, nil
+}
+
+// handlePut answers the upload request. It writes no bytes: the driver does,
+// after reading this.
+func (s *Server) handlePut(w http.ResponseWriter, m []string) {
+	src, ref, tail := m[1], m[2], m[3]
+
+	if !strings.HasPrefix(strings.ToLower(src), "file://") {
+		writeFail(w, http.StatusOK, "001011", fmt.Sprintf(
+			"PUT from %s is not implemented: this emulator uploads from file:// only", src))
+		return
+	}
+	opts, err := parsePutOptions(tail)
+	if err != nil {
+		writeFail(w, http.StatusOK, "001013", err.Error())
+		return
+	}
+
+	stage, sub, _ := strings.Cut(ref, "/")
+	dir, err := s.stageDir(stage)
+	if err != nil {
+		writeFail(w, http.StatusOK, "001012", err.Error())
+		return
+	}
+	dest := filepath.Join(dir, filepath.FromSlash(sub))
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		writeFail(w, http.StatusOK, "001012", err.Error())
+		return
+	}
+
+	// The directory the CLIENT will write into. It differs from `dest` only
+	// when this process and the client see the stage at different paths.
+	clientDest := dest
+	if s.Cfg.StageClientDir != "" {
+		rel, err := filepath.Rel(s.Cfg.StageDir, dest)
+		if err != nil {
+			writeFail(w, http.StatusOK, "001012", err.Error())
+			return
+		}
+		clientDest = filepath.Join(s.Cfg.StageClientDir, rel)
+	}
+
+	writeUploadOK(w, strings.TrimPrefix(src, "file://"), clientDest, opts)
+}
+
+// writeUploadOK renders the response the drivers' file transfer agents read.
+//
+// THE FIELD LIST IS DERIVED FROM THE DRIVERS, not from documentation:
+// gosnowflake's execResponseData/execResponseStageInfo and the Python
+// connector's _parse_command, which errors without `command`, a list-valued
+// `src_locations`, and a `stageInfo` carrying `locationType`, `location` and
+// `creds`. `creds` is empty because LOCAL_FS needs none, and it is present
+// rather than omitted because the Python connector indexes it.
+func writeUploadOK(w http.ResponseWriter, srcPath, dest string, o putOptions) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"success": true,
+		"message": nil,
+		"code":    nil,
+		"data": map[string]any{
+			"command":       "UPLOAD",
+			"src_locations": []string{srcPath},
+			"parallel":      o.Parallel,
+			"threshold":     67108864,
+			"autoCompress":  o.AutoCompress,
+			"overwrite":     o.Overwrite,
+			// AUTO_DETECT is Snowflake's default and means "look at the file".
+			"sourceCompression": strings.ToLower(o.SourceCompression),
+			"stageInfo": map[string]any{
+				"locationType":          "LOCAL_FS",
+				"location":              dest + string(os.PathSeparator),
+				"path":                  "",
+				"region":                "",
+				"isClientSideEncrypted": false,
+				"creds":                 map[string]any{},
+			},
+			"queryId":  "q1",
+			"sqlState": "00000",
+		},
+	})
+}
+
+// stageFile resolves a stage path to a file on disk the way COPY INTO needs
+// it, and the .gz arm is the direct consequence of implementing PUT.
+//
+// AUTO_COMPRESS defaults to TRUE, so `PUT file://orders.csv @~` leaves
+// `orders.csv.gz` in the stage. Real Snowflake matches stage paths by PREFIX,
+// so `COPY INTO t FROM @~/orders.csv` finds that file there. This emulator
+// matches one exact path, so without this it would answer "no such file" for
+// the file it had just been asked to upload.
+//
+// THIS IS NARROWER THAN SNOWFLAKE, deliberately. Prefix matching there loads
+// EVERY file under the prefix; this resolves one name and its compressed
+// spelling. A prefix naming several files is a different statement and is not
+// implemented, rather than being half-implemented as "the first one".
+func stageFile(dir, path string) (string, error) {
+	exact := filepath.Join(dir, filepath.FromSlash(path))
+	if _, err := os.Stat(exact); err == nil {
+		return exact, nil
+	}
+	if gz := exact + ".gz"; path != "" {
+		if _, err := os.Stat(gz); err == nil {
+			return gz, nil
+		}
+	}
+	return "", fmt.Errorf("no file matching %q in the stage", path)
+}
