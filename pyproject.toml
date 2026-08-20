@@ -30,3 +30,7 @@ override-dependencies = ["sqlparse>=0.6.0"]
 
 [tool.uv.sources]
 snowflake-target = { path = "python/snowflake-target" }
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
