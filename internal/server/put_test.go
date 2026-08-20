@@ -227,3 +227,76 @@ func TestANamedFileIsStillNotAPrefix(t *testing.T) {
 		t.Fatalf("a named file must still resolve: %q %v", got, err)
 	}
 }
+
+// TestPutDestinationIsWritableByAnotherUser is the Airflow 3 cell's bug.
+//
+// `PUT` is a two-party operation: this server decides where the file goes and
+// answers with the path, and the DRIVER writes the bytes. When the two run as
+// different users -- a containerised client against a containerised warehouse,
+// which is the ordinary shape -- a destination directory created 0755 by this
+// process is one the client cannot write into:
+//
+//	PermissionError: [Errno 13] Permission denied:
+//	    '/stages/contoso_pos_customers/part-0001.csv.gz'
+//
+// The driver wraps that as `253003: While putting file(s) there was an error`,
+// which names blob storage and gives no hint that a umask decided it.
+//
+// ASSERTS THE MODE, not that a write succeeded, because a test running as the
+// same uid that created the directory can write to it whatever the mode is --
+// which is precisely why the unit tests missed this and a two-container stack
+// found it.
+func TestPutDestinationIsWritableByAnotherUser(t *testing.T) {
+	stage := t.TempDir()
+	s := &Server{Cfg: config.Config{StageDir: stage}}
+	dest := filepath.Join(stage, "feed")
+
+	if err := s.preparePutDir(dest); err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	info, err := os.Stat(dest)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o777 {
+		t.Fatalf("stage subdirectory is %04o, want 0777 -- a client running as "+
+			"another user cannot write the bytes it was told to write", perm)
+	}
+}
+
+// TestPutDirAcceptsAnAlreadyWritableDirectoryItCannotChmod is the regression a
+// peer review caught in the fix above, before it shipped.
+//
+// `os.Chmod` fails when this process does not own the directory EVEN IF THE
+// MODE IS ALREADY WHAT WE WANT. Treating that as fatal would refuse a PUT that
+// works today: `PUT @~/orders.csv` with no subdirectory makes the destination
+// the stage ROOT, which in a container deployment is a mounted volume this
+// process very likely does not own. MkdirAll is a no-op there and the upload
+// proceeds -- unless a chmod error stops it.
+//
+// The connector can also create that directory itself, as the client's uid,
+// which is one we can never chmod.
+func TestPutDirAcceptsAnAlreadyWritableDirectoryItCannotChmod(t *testing.T) {
+	// A world-writable directory this process does not own. If the test runs as
+	// root there is no such thing, and the case cannot be exercised -- said out
+	// loud rather than passing vacuously.
+	var target string
+	for _, c := range []string{"/private/var/tmp", "/var/tmp", "/tmp"} {
+		fi, err := os.Stat(c)
+		if err != nil || fi.Mode().Perm()&0o002 == 0 {
+			continue
+		}
+		if os.Chmod(c, fi.Mode().Perm()) != nil { // cannot chmod: what we want
+			target = c
+			break
+		}
+	}
+	if target == "" {
+		t.Skip("no world-writable directory this process cannot chmod (running as root?)")
+	}
+
+	s := &Server{Cfg: config.Config{StageDir: target}}
+	if err := s.preparePutDir(target); err != nil {
+		t.Fatalf("refused a directory the client can already write to: %v", err)
+	}
+}
