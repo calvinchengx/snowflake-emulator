@@ -40,6 +40,7 @@ the same run.
 | Decimal keeps its scale |  | 🟢 |
 | NULL is null, not a word |  | 🟢 |
 | Unparseable SQL is refused |  | 🟢 |
+| Snowflake scalar type names in DDL |  | 🟢 |
 
 ## Semi-structured
 
@@ -69,7 +70,9 @@ the same run.
 | A prefix is refused | Real Snowflake resolves a stage reference by prefix and loads EVERY file under it, which is the ordinary way to load a paged feed. This resolves one name and the `.gz` AUTO_COMPRESS leaves, so a prefix is refused BY NAME. It used to come back as duckdb's own words about a path inside the container, which left the reader to work out that the feature was missing rather than the file. | 🟢 |
 | PUT | The driver uploads the bytes itself, as it does against a real account: the answer names LOCAL_FS and the stage directory, and the connector's file transfer agent does the copying. AUTO_COMPRESS defaults to TRUE, so the stage holds `<name>.gz`. Set SNOWFLAKE_STAGE_CLIENT_DIR when the client sees the stage at a different path than the server does. | 🟢 |
 | REMOVE | duckdb: Parser Error: syntax error at or near "REMOVE" | 🔴 |
-| INFER_SCHEMA | duckdb: Parser Error: syntax error at or near "TABLE" | 🔴 |
+| INFER_SCHEMA | TYPE reports the names an ACCOUNT reports -- NUMBER(38,0), TIMESTAMP_NTZ -- so a CREATE TABLE built from it is portable. DESCRIBE TABLE still reports the ENGINE's names (DECIMAL(38,0)), and deliberately: the family's `money_is_never_stored_as_float` contract accepts only `decimal` and `numeric` prefixes, so renaming what DESCRIBE reports would fail 52 gold contracts. The two statements answer in different vocabularies and that is recorded rather than reconciled. | 🟢 |
+| INFER_SCHEMA composes (WHERE over the result) |  | 🟢 |
+| INFER_SCHEMA without FILE_FORMAT is refused |  | 🟢 |
 
 ## Tasks and streams
 
@@ -116,4 +119,4 @@ the same run.
 |---|---|---|
 | CREATE / SHOW / SUSPEND |  | 🟢 |
 
-_54 of 62 answered._
+_58 of 65 answered._
