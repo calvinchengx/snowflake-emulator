@@ -36,8 +36,17 @@ not the one asked for.
 `WHEN` is refused for the mirror-image reason: a predicate that is never
 evaluated turns a conditional task into an unconditional one.
 
-A task with neither `SCHEDULE` nor `AFTER` is refused — it could never run, and
-storing it would be a task that reports created and does nothing forever.
+A task with **neither `SCHEDULE` nor `AFTER`** is a **manual task**: created
+suspended, never picked up by the scheduler, and run on demand by
+`EXECUTE TASK`. That is what a pipeline driven by an orchestrator wants, and
+what `CREATE TASK … AS EXECUTE DBT PROJECT` looks like when something else owns
+the schedule.
+
+This was refused until v0.1.7, and the reason given here — *"it could never
+run"* — was **false**. Snowflake requires a schedule only for a task that must
+START ITSELF. Refusing made a consumer invent a `SCHEDULE` it did not want,
+which is the opposite of what an honest refusal is for: this emulator may refuse
+what is genuinely absent upstream, never what is merely absent here.
 
 ## Streams
 

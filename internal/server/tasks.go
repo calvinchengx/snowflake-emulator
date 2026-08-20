@@ -155,9 +155,24 @@ func parseTask(name, opts, body string) (*task, error) {
 			}
 		}
 	}
-	if t.Schedule == 0 && len(t.After) == 0 {
-		return nil, fmt.Errorf("a task needs SCHEDULE or AFTER")
-	}
+	// A TASK WITH NEITHER SCHEDULE NOR AFTER IS A MANUAL TASK, and it is legal.
+	//
+	// This used to be refused, with the reason "it could never run". That reason
+	// was FALSE, and checking it against Snowflake's own documentation rather
+	// than against intuition is what found it: Snowflake requires a schedule
+	// only for a task that must START ITSELF. A task created without one is
+	// valid, starts suspended like every other, and is run on demand by
+	// `EXECUTE TASK` -- which is exactly the shape a pipeline triggered by an
+	// orchestrator wants, and the shape `CREATE TASK ... AS EXECUTE DBT PROJECT`
+	// takes when something else owns the schedule.
+	//
+	// Refusing was doctrine misapplied. An honest refusal is only honest when
+	// the thing refused is genuinely absent upstream; refusing something real
+	// Snowflake supports teaches a consumer to write SQL it does not need, and
+	// the consumer here was made to invent a SCHEDULE it did not want.
+	//
+	// Nothing else has to change for it to be safe: the scheduler already fires
+	// only tasks with `Schedule > 0`, so a manual task is never picked up by it.
 	return t, nil
 }
 
