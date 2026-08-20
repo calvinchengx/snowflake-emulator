@@ -30,11 +30,47 @@ func TestAfterMakesAGraph(t *testing.T) {
 	}
 }
 
-func TestATaskNeedsAScheduleOrAPredecessor(t *testing.T) {
-	// Snowflake requires one. A task with neither can never run, and storing
-	// it would be a task that reports created and does nothing forever.
-	if _, err := parseTask("orphan", "WAREHOUSE = wh", "SELECT 1"); err == nil {
-		t.Fatal("a task with neither SCHEDULE nor AFTER was accepted")
+func TestAManualTaskIsAcceptedAndNeverSelfFires(t *testing.T) {
+	// THIS TEST USED TO ASSERT THE OPPOSITE, and it was wrong.
+	//
+	// It said "Snowflake requires one. A task with neither can never run" --
+	// confident, plausible, and false. Snowflake requires a schedule only for a
+	// task that must START ITSELF. A task created with neither is a MANUAL TASK:
+	// valid, created suspended, and run on demand by `EXECUTE TASK`.
+	//
+	// That is the shape a pipeline driven by an orchestrator wants, and the
+	// shape `CREATE TASK ... AS EXECUTE DBT PROJECT` takes when something else
+	// owns the schedule. Refusing it made a consumer invent a SCHEDULE it did
+	// not want, which is the opposite of what an honest refusal is for: an
+	// emulator may refuse what is genuinely absent upstream, never what is
+	// merely absent here.
+	got, err := parseTask("manual", "WAREHOUSE = wh", "SELECT 1")
+	if err != nil {
+		t.Fatalf("a manual task was refused: %v", err)
+	}
+	if got.Schedule != 0 || len(got.After) != 0 {
+		t.Fatalf("%+v: a manual task carries neither a schedule nor a predecessor", got)
+	}
+
+	// AND IT MUST NOT FIRE ITSELF, which is the half the old refusal was
+	// protecting. The scheduler picks up only tasks with a positive interval, so
+	// a manual task is invisible to it however long it is resumed.
+	s := &Server{tasks: map[string]*task{"MANUAL": got}}
+	got.Started = true
+	var due int
+	for _, x := range s.tasks {
+		if x.Started && x.Schedule > 0 && len(x.After) == 0 {
+			due++
+		}
+	}
+	if due != 0 {
+		t.Fatal("a resumed manual task was treated as due; it runs only on EXECUTE TASK")
+	}
+
+	// It is still reachable BY NAME, so EXECUTE TASK can run it.
+	order, err := s.graphFrom("MANUAL")
+	if err != nil || len(order) != 1 || order[0].Name != "manual" {
+		t.Fatalf("EXECUTE TASK could not reach the manual task: %v %v", order, err)
 	}
 }
 
