@@ -209,8 +209,12 @@ WITNESSES = {
     "SELECT, CTE, window": ["ci:e2e-sql"],
     "COPY INTO from an internal stage": ["ci:e2e-sql"],
     "COPY INTO with a named format": ["ci:e2e-sql"],
+    # The Go tests prove it is a relation and that it unions by name. NEITHER
+    # proves the loop the feature exists for: that a CREATE TABLE built from
+    # the answer then LOADS the file it described. e2e-infer does.
     "INFER_SCHEMA": ["go:TestInferSchemaIsARelationNotOneBlessedSentence",
-                     "go:TestInferSchemaUnionsByNameOrItSilentlyDropsColumns"],
+                     "go:TestInferSchemaUnionsByNameOrItSilentlyDropsColumns",
+                     "ci:e2e-infer"],
     "INFER_SCHEMA composes (WHERE over the result)":
         ["go:TestInferSchemaIsARelationNotOneBlessedSentence"],
     "INFER_SCHEMA without FILE_FORMAT is refused":
