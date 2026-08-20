@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 )
 
 // Result is one statement's rows. Dialect is always duckdb when this engine ran.
@@ -70,10 +71,38 @@ func Exec(duckdbPath, sql string) (Result, error) {
 	}, nil
 }
 
+// ONE STATEMENT AT A TIME, BECAUSE DUCKDB TAKES AN EXCLUSIVE FILE LOCK.
+//
+// Every statement runs the duckdb CLI as a child process against the warehouse
+// file, and duckdb locks that file for the life of the process. Two statements
+// in flight at once means the second is REFUSED:
+//
+//	unable to open database "/data/warehouse.duckdb": IO Error: Could not set
+//	lock on file: Conflicting lock is held in /usr/local/bin/duckdb (PID 1754)
+//
+// Real Snowflake serves concurrent queries, so answering a valid statement with
+// a lock error is a parity failure, not a limitation to document.
+//
+// IT WENT UNNOTICED BECAUSE EVERY CONSUMER SO FAR WAS SEQUENTIAL. The Tasks
+// cell runs one step at a time from a Makefile; the e2e suites issue one
+// statement at a time. The Airflow 3 cell was the first client to send several
+// at once -- cosmos renders eight silver models as eight tasks and the executor
+// ran them together -- and three of eight failed on the lock while five
+// succeeded. A partial, non-deterministic failure that looks like flaky SQL.
+//
+// A MUTEX RATHER THAN A CONNECTION POOL, deliberately. Pooling would mean
+// keeping the database open across statements, which is a larger change to how
+// this engine works and would change WHEN writes become visible. Serialising
+// preserves the current semantics exactly and makes concurrent callers wait,
+// which is what they already expect from a warehouse with one thread.
+var engineMu sync.Mutex
+
 func run(duckdbPath, sql string) ([]byte, error) {
 	if strings.TrimSpace(duckdbPath) == "" {
 		return nil, MissingAttachError()
 	}
+	engineMu.Lock()
+	defer engineMu.Unlock()
 	bin, err := exec.LookPath("duckdb")
 	if err != nil {
 		return nil, fmt.Errorf("duckdb binary not on PATH (SNOWFLAKE_DUCKDB_PATH=%s): %w", duckdbPath, err)
