@@ -87,8 +87,14 @@ PROBES = [
     ("Orchestration", "DROP TASK", "DROP TASK p_task_child"),
     ("Orchestration", "USING CRON is refused",
      "CREATE TASK p_cron SCHEDULE = 'USING CRON 0 9 * * * UTC' AS SELECT 1", "must_fail"),
-    ("Orchestration", "A task with neither SCHEDULE nor AFTER is refused",
-     "CREATE TASK p_orphan WAREHOUSE = parity_wh AS SELECT 1", "must_fail"),
+    # A MANUAL TASK: neither SCHEDULE nor AFTER, run only by EXECUTE TASK. This
+    # probe used to assert the opposite -- that such a task is REFUSED -- which
+    # is what a wrong belief looks like once it has been written down twice, in
+    # the code and in the thing that measures the code. Snowflake requires a
+    # schedule only for a task that must start itself.
+    ("Orchestration", "A manual task (no SCHEDULE, no AFTER)",
+     "CREATE TASK p_manual WAREHOUSE = parity_wh AS SELECT 1"),
+    ("Orchestration", "EXECUTE TASK on a manual task", "EXECUTE TASK p_manual"),
     ("Orchestration", "CREATE STREAM", "CREATE STREAM p_stream ON TABLE p_t"),
     ("Orchestration", "Reading a stream", "SELECT count(*) FROM p_stream"),
     ("Orchestration", "SYSTEM$STREAM_HAS_DATA", "SELECT SYSTEM$STREAM_HAS_DATA('p_stream') AS has"),
