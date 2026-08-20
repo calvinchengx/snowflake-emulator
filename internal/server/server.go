@@ -711,11 +711,11 @@ func snowflakeType(duck string) (string, int, int) {
 	case "DATE":
 		return "date", 0, 0
 	case "TIME":
-		return "time", 0, 0
+		return "time", 0, temporalScale
 	case "TIMESTAMP", "DATETIME", "TIMESTAMP_NS", "TIMESTAMP_MS", "TIMESTAMP_S":
-		return "timestamp_ntz", 0, 0
+		return "timestamp_ntz", 0, temporalScale
 	case "TIMESTAMPTZ", "TIMESTAMP WITH TIME ZONE":
-		return "timestamp_ltz", 0, 0
+		return "timestamp_ltz", 0, temporalScale
 	case "BLOB", "BYTEA", "VARBINARY":
 		return "binary", 0, 0
 	default:
@@ -791,6 +791,12 @@ func writeQueryTyped(w http.ResponseWriter, cols, types []string, rows [][]*stri
 //
 // TRUE/FALSE satisfies the Python contract and stays legible in Go.
 func renderCell(kind any, value string) string {
+	if k, ok := kind.(string); ok {
+		switch k {
+		case "date", "time", "timestamp_ntz", "timestamp_ltz":
+			return renderTemporal(k, value)
+		}
+	}
 	if kind != "boolean" {
 		return value
 	}
@@ -922,4 +928,66 @@ func (s *Server) icebergNamespace(w http.ResponseWriter, r *http.Request) {
 		ids = append(ids, map[string]any{"namespace": []string{"TEST_DB"}, "name": name})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"identifiers": ids})
+}
+
+// The wire format for the temporal types, and the scale that goes with it.
+//
+// MEASURED THROUGH THE OFFICIAL CONNECTOR, where all three were unreadable:
+//
+//	DATE           252005: Failed to convert: DATE::2026-01-02
+//	TIMESTAMP_NTZ  252005: Failed to convert: TIMESTAMP_NTZ::2026-01-02 03:04:05
+//	TIME           252005: could not convert string to float: '03:04:05'
+//
+// Not a refusal and not a wrong value: a consumer could not read a date out of
+// this emulator AT ALL through the client it is meant to be used with. It went
+// unnoticed because the pipelines built on it do their work in SQL and read
+// back counts and sums, so nothing ever selected a date.
+//
+// The formats are the client's, derived from its converters and then CHECKED
+// against them rather than reasoned about:
+//
+//	_DATE_to_python           int(value) * 86400        -> days since the epoch
+//	create_timestamp_from_string(value, scale)          -> seconds.fraction
+//	_TIME_to_python           float(value)              -> seconds since midnight
+//
+// Confirmed by running those converters: "20455" reads 2026-01-02,
+// "1767322645.123456" at scale 6 reads 2026-01-02 02:57:25.123456, and
+// "11045.500000" at scale 6 reads 03:04:05.500000.
+const temporalScale = 6
+
+const (
+	duckDate      = "2006-01-02"
+	duckTimestamp = "2006-01-02 15:04:05.999999"
+	duckTime      = "15:04:05.999999"
+)
+
+// renderTemporal converts duckdb's spelling into the client's. A value that
+// does not parse is passed through untouched: an unparseable date is a
+// question this cannot answer, and inventing an epoch for it would put a real
+// wrong date in front of a consumer.
+func renderTemporal(kind, value string) string {
+	switch kind {
+	case "date":
+		t, err := time.Parse(duckDate, value)
+		if err != nil {
+			return value
+		}
+		return strconv.FormatInt(t.UTC().Unix()/86400, 10)
+	case "timestamp_ntz", "timestamp_ltz":
+		t, err := time.Parse(duckTimestamp, value)
+		if err != nil {
+			if t, err = time.Parse(duckDate, value); err != nil {
+				return value
+			}
+		}
+		return fmt.Sprintf("%d.%06d", t.UTC().Unix(), t.Nanosecond()/1000)
+	case "time":
+		t, err := time.Parse(duckTime, value)
+		if err != nil {
+			return value
+		}
+		secs := t.Hour()*3600 + t.Minute()*60 + t.Second()
+		return fmt.Sprintf("%d.%06d", secs, t.Nanosecond()/1000)
+	}
+	return value
 }

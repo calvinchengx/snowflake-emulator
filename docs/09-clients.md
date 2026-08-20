@@ -33,6 +33,29 @@ carry its columns. `SHOW FUNCTIONS` returns the five columns dbt selects with
 zero rows, because "no UDFs" is an answer and an empty result with no columns
 is not.
 
+## Dates, times and timestamps are numbers on the wire
+
+Not `2026-01-02`. The client's converters read a **number**:
+
+| type | wire value | |
+|---|---|---|
+| `DATE` | `20455` | days since the epoch |
+| `TIMESTAMP_NTZ` | `1767322645.123456` | seconds, with the fraction the scale declares |
+| `TIME` | `11045.500000` | seconds since midnight |
+
+Until this was fixed, all three were **unreadable**. Not refused and not wrong:
+a `SELECT` of a `DATE` raised `252005: Failed to convert: DATE::2026-01-02,
+Error: invalid literal for int()`. A consumer could not read a date out of this
+emulator through the client it is meant to be used with.
+
+It survived because the pipelines built on this do their work in SQL and read
+back counts and sums. Nothing selected a date, so nothing failed, and the
+capability was never claimed as working because nobody had asked.
+
+The scale in the row type is load-bearing: the connector splits the seconds
+from the fraction with it, so a fractional value declared scale 0 comes back
+with the fraction dropped.
+
 ## A boolean is spelled the way the client reads it
 
 `TRUE` and `FALSE`, not duckdb's `true` and `false`, because the client is the
