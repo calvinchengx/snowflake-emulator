@@ -94,7 +94,8 @@ the same run.
 | EXECUTE TASK | Runs the named task and everything downstream of it, as Snowflake does. A resumed root task also fires on its own interval. TASK_HISTORY() is not implemented. | 🟢 |
 | DROP TASK |  | 🟢 |
 | USING CRON is refused |  | 🟢 |
-| A task with neither SCHEDULE nor AFTER is refused |  | 🟢 |
+| A manual task (no SCHEDULE, no AFTER) |  | 🟢 |
+| EXECUTE TASK on a manual task |  | 🟢 |
 | CREATE STREAM | APPEND-ONLY, and it proves it rather than assuming it. DuckDB keeps no change log, so the stream remembers the first rowid it has not shown and a checksum of the rows it has. If a row before that point is updated or deleted the stream REFUSES TO BE READ, naming what happened -- Snowflake would report those as DELETE and INSERT rows, and answering without them would silently drop the change. METADATA$ACTION is always INSERT for the same reason. | 🟢 |
 | Reading a stream |  | 🟢 |
 | SYSTEM$STREAM_HAS_DATA |  | 🟢 |
@@ -108,4 +109,4 @@ the same run.
 |---|---|---|
 | CREATE / SHOW / SUSPEND |  | 🟢 |
 
-_51 of 59 answered._
+_52 of 60 answered._
