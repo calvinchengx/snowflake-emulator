@@ -756,7 +756,6 @@ func writeQueryOK(w http.ResponseWriter, cols []string, rows [][]string, dialect
 		if rows == nil {
 			rows = [][]string{{"ok"}}
 		}
-		cols = []string{"status"}
 	}
 	out := make([][]any, 0, len(rows))
 	for _, r := range rows {

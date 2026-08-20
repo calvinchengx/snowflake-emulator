@@ -126,3 +126,24 @@ jobs:
       # the shipped image does not give -- which is how a silent 200 survived
       # a day of measurement.
       - run: uv run --frozen --group sql python e2e/parity/run.py --check
+
+  lint:
+    name: golangci-lint
+    runs-on: ubuntu-latest
+    # A wedged run must fail rather than sit in GitHub's 6-hour default, where
+    # 'pending' and 'stuck' look identical.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      # Gated at zero. .golangci.yml excludes unchecked Close, Rollback and
+      # Fprintf, where the return value is unactionable at the call site;
+      # everything surviving that is fixed rather than suppressed. Its issue
+      # caps are lifted too, since by default identical issues stop at three
+      # and that under-reported this family by 2.5x.
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.12.2
