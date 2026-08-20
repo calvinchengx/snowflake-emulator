@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -753,12 +754,45 @@ func writeQueryTyped(w http.ResponseWriter, cols, types []string, rows [][]*stri
 		cells := make([]any, len(cols))
 		for i := range cols {
 			if i < len(r) && r[i] != nil {
-				cells[i] = *r[i]
+				cells[i] = renderCell(rowtype[i]["type"], *r[i])
 			}
 		}
 		out = append(out, cells)
 	}
 	writeQueryBody(w, rowtype, out, dialect)
+}
+
+// renderCell puts a value into the spelling the CLIENT reads, which for
+// exactly one type is not the spelling duckdb writes.
+//
+// MEASURED, and it was wrong in the worst way: `SELECT NULL IS NULL, 1 IS NOT
+// NULL, TRUE, FALSE` came back through the official Python connector as
+// (False, False, False, False). Every boolean, including a literal TRUE, read
+// false. Not a refusal -- a wrong answer, silently, to a statement real
+// Snowflake answers.
+//
+// THE CAUSE IS THE CLIENT'S CONTRACT, derived from its source rather than
+// guessed: snowflake-connector-python's _BOOLEAN_to_python is
+// `lambda value: value in ("1", "TRUE")`. duckdb writes `true`, which is
+// neither, so the converter answered false for everything. gosnowflake's
+// stringToValue has no boolean arm at all in the JSON result format and hands
+// the raw string through, so it reads whatever we send either way.
+//
+// TRUE/FALSE satisfies the Python contract and stays legible in Go.
+func renderCell(kind any, value string) string {
+	if kind != "boolean" {
+		return value
+	}
+	b, err := strconv.ParseBool(value)
+	if err != nil {
+		// Not something we can name confidently. Passing it through unchanged
+		// is worse than nothing only if we pretended to know; this does not.
+		return value
+	}
+	if b {
+		return "TRUE"
+	}
+	return "FALSE"
 }
 
 func writeQueryOK(w http.ResponseWriter, cols []string, rows [][]string, dialect string) {
