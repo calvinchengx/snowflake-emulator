@@ -32,6 +32,10 @@ type Server struct {
 	formats map[string]fileFormat
 	tasks   map[string]*task
 	streams map[string]*stream
+	// runs is what TASK_HISTORY() reads. A task that ran and left no trace is
+	// a task an orchestrator cannot wait on, which is why EXECUTE TASK alone
+	// was not enough to drive a pipeline from here.
+	runs []taskRun
 }
 
 type session struct {
@@ -400,6 +404,17 @@ func (s *Server) runSQL(w http.ResponseWriter, tok string, sess session, sqlText
 
 	if s.handleStreamSQL(w, sqlText) {
 		return
+	}
+
+	// TASK_HISTORY() becomes a relation before anything else looks at the
+	// statement, so the engine sees ordinary SQL over ordinary rows and every
+	// WHERE, ORDER BY and LIMIT a consumer writes is the engine's own.
+	if expanded, err := s.expandTaskHistory(sqlText); err != nil {
+		writeFail(w, http.StatusOK, "001040", err.Error())
+		return
+	} else if expanded != sqlText {
+		sqlText = expanded
+		upper = strings.ToUpper(sqlText)
 	}
 
 	// A stream reference becomes the rows it owes. This runs after the DDL

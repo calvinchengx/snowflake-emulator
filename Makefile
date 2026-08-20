@@ -48,6 +48,11 @@ e2e-put: ## The driver's own file transfer agent uploads, then COPY INTO reads
 	@command -v duckdb >/dev/null || { echo "duckdb is required on PATH" >&2; exit 1; }
 	$(UV) run --frozen --group sql python e2e/put/run.py
 
+e2e-tasks: ## A graph runs and TASK_HISTORY says what it did, good and bad
+	@command -v $(UV) >/dev/null || { echo "uv is required" >&2; exit 1; }
+	@command -v duckdb >/dev/null || { echo "duckdb is required on PATH" >&2; exit 1; }
+	$(UV) run --frozen --group sql python e2e/tasks/run.py
+
 e2e-iceberg: ## Iceberg REST lists a table created through the connector
 	@command -v $(UV) >/dev/null || { echo "uv is required" >&2; exit 1; }
 	@command -v duckdb >/dev/null || { echo "duckdb is required on PATH" >&2; exit 1; }

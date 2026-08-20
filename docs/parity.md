@@ -71,6 +71,12 @@ the same run.
 | REMOVE | duckdb: Parser Error: syntax error at or near "REMOVE" | 🔴 |
 | INFER_SCHEMA | duckdb: Parser Error: syntax error at or near "TABLE" | 🔴 |
 
+## Tasks and streams
+
+| Feature | Detail | Status |
+|---|---|---|
+| TASK_HISTORY |  | 🟢 |
+
 ## Catalog
 
 | Feature | Detail | Status |
@@ -92,7 +98,7 @@ the same run.
 | Task graphs (AFTER) |  | 🟢 |
 | ALTER TASK RESUME / SUSPEND |  | 🟢 |
 | SHOW TASKS |  | 🟢 |
-| EXECUTE TASK | Runs the named task and everything downstream of it, as Snowflake does. A resumed root task also fires on its own interval. TASK_HISTORY() is not implemented. | 🟢 |
+| EXECUTE TASK | Runs the named task and everything downstream of it, as Snowflake does. A resumed root task also fires on its own interval. Its runs, and the runs of everything downstream, are readable through TASK_HISTORY(). | 🟢 |
 | DROP TASK |  | 🟢 |
 | USING CRON is refused |  | 🟢 |
 | A manual task (no SCHEDULE, no AFTER) |  | 🟢 |
@@ -110,4 +116,4 @@ the same run.
 |---|---|---|
 | CREATE / SHOW / SUSPEND |  | 🟢 |
 
-_53 of 61 answered._
+_54 of 62 answered._
