@@ -118,6 +118,29 @@ def main() -> int:
             raise SystemExit(f"a text column holding {flags[4]!r} was rewritten as a boolean")
 
         print(f"e2e-sql: booleans {flags[:4]}, text {flags[4]!r} untouched")
+        # TEMPORAL TYPES, THROUGH THE CONNECTOR'S OWN CONVERTERS. All three
+        # were unreadable: a DATE came back as 252005 "invalid literal for
+        # int()", because the wire format is days since the epoch and this
+        # emulator sent duckdb's `2026-01-02`. A consumer could not select a
+        # date at all. It went unnoticed because these pipelines do their work
+        # in SQL and read back counts and sums.
+        cur.execute(
+            "SELECT DATE '2026-01-02' AS d, "
+            "TIMESTAMP '2026-01-02 02:57:25.123456' AS ts, "
+            "TIME '03:04:05' AS tm"
+        )
+        temporal = cur.fetchone()
+        if temporal is None:
+            raise SystemExit("no row for the temporal check")
+        d, ts, tm = temporal
+        if str(d) != "2026-01-02":
+            raise SystemExit(f"DATE read back as {d!r}")
+        if str(ts) != "2026-01-02 02:57:25.123456":
+            raise SystemExit(f"TIMESTAMP read back as {ts!r}, losing the fraction")
+        if str(tm) != "03:04:05":
+            raise SystemExit(f"TIME read back as {tm!r}")
+        print(f"e2e-sql: temporal {d} / {ts} / {tm}")
+
         print("e2e-sql: SELECT 1 dialect=duckdb; COPY INTO ok")
         return 0
     finally:

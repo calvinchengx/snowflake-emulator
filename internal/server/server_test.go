@@ -160,8 +160,11 @@ func TestSnowflakeTypeCarriesPrecisionAndScale(t *testing.T) {
 		{"FLOAT", "real", 0, 0},
 		{"BOOLEAN", "boolean", 0, 0},
 		{"DATE", "date", 0, 0},
-		{"TIMESTAMP", "timestamp_ntz", 0, 0},
-		{"TIME", "time", 0, 0},
+		// The scale is not decoration: the connector splits seconds from the
+		// fraction using it, so a fractional value declared scale 0 reads
+		// back with the fraction lost.
+		{"TIMESTAMP", "timestamp_ntz", 0, temporalScale},
+		{"TIME", "time", 0, temporalScale},
 		{"VARCHAR", "text", 0, 0},
 		{"VARCHAR(50)", "text", 0, 0},
 		{"BLOB", "binary", 0, 0},
