@@ -227,3 +227,39 @@ func TestANamedFileIsStillNotAPrefix(t *testing.T) {
 		t.Fatalf("a named file must still resolve: %q %v", got, err)
 	}
 }
+
+// TestPutDestinationIsWritableByAnotherUser is the Airflow 3 cell's bug.
+//
+// `PUT` is a two-party operation: this server decides where the file goes and
+// answers with the path, and the DRIVER writes the bytes. When the two run as
+// different users -- a containerised client against a containerised warehouse,
+// which is the ordinary shape -- a destination directory created 0755 by this
+// process is one the client cannot write into:
+//
+//	PermissionError: [Errno 13] Permission denied:
+//	    '/stages/contoso_pos_customers/part-0001.csv.gz'
+//
+// The driver wraps that as `253003: While putting file(s) there was an error`,
+// which names blob storage and gives no hint that a umask decided it.
+//
+// ASSERTS THE MODE, not that a write succeeded, because a test running as the
+// same uid that created the directory can write to it whatever the mode is --
+// which is precisely why the unit tests missed this and a two-container stack
+// found it.
+func TestPutDestinationIsWritableByAnotherUser(t *testing.T) {
+	stage := t.TempDir()
+	s := &Server{Cfg: config.Config{StageDir: stage}}
+	dest := filepath.Join(stage, "feed")
+
+	if err := s.preparePutDir(dest); err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	info, err := os.Stat(dest)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o777 {
+		t.Fatalf("stage subdirectory is %04o, want 0777 -- a client running as "+
+			"another user cannot write the bytes it was told to write", perm)
+	}
+}

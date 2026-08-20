@@ -327,8 +327,31 @@ func (s *Server) handlePut(w http.ResponseWriter, m []string) {
 		writeFail(w, http.StatusOK, "001012", err.Error())
 		return
 	}
+	// 0777, NOT 0755, BECAUSE THE CLIENT WRITES THE BYTES AND IT IS NOT US.
+	//
+	// `PUT` is a two-party operation here: this server decides where the file
+	// goes and answers with the path, and the driver's file transfer agent
+	// writes it. When the two run as different users -- which is the ordinary
+	// case for a containerised client against a containerised warehouse -- a
+	// directory this process creates 0755 is one the client cannot write into.
+	//
+	// Measured rather than reasoned about, on the Airflow 3 cell where the
+	// worker is uid 50000 and this server is 65532:
+	//
+	//     PermissionError: [Errno 13] Permission denied:
+	//         '/stages/contoso_pos_customers/part-0001.csv.gz'
+	//
+	// wrapped by the driver as `253003: While putting file(s) there was an
+	// error`, which names blob storage and gives no hint that a umask decided
+	// it. The stage root already has to be world-writable for the same reason;
+	// creating its subdirectories tighter than the root it sits in was the
+	// inconsistency.
+	//
+	// MkdirAll APPLIES THE UMASK, so the mode is set explicitly afterwards --
+	// a fresh directory under a 0022 umask would otherwise come out 0755
+	// however it was requested, which is exactly how this was missed.
 	dest := filepath.Join(dir, filepath.FromSlash(sub))
-	if err := os.MkdirAll(dest, 0o755); err != nil {
+	if err := s.preparePutDir(dest); err != nil {
 		writeFail(w, http.StatusOK, "001012", err.Error())
 		return
 	}
@@ -444,4 +467,16 @@ func looksLikeAPrefix(path string) (bool, string) {
 		return true, "a glob"
 	}
 	return false, ""
+}
+
+// preparePutDir makes the destination a directory the CLIENT can write into.
+//
+// MkdirAll APPLIES THE UMASK, so a directory requested 0777 comes out 0755
+// under the usual 0022 -- which is exactly how this was missed. The mode is
+// therefore set explicitly afterwards.
+func (s *Server) preparePutDir(dest string) error {
+	if err := os.MkdirAll(dest, 0o777); err != nil {
+		return err
+	}
+	return os.Chmod(dest, 0o777)
 }
