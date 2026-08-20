@@ -96,6 +96,28 @@ def main() -> int:
         )
         if not copy.get("success"):
             raise SystemExit(copy)
+        # BOOLEANS, THROUGH THE CONNECTOR'S OWN CONVERTER. This came back as
+        # (False, False, False, False) -- every boolean false, including a
+        # literal TRUE -- because the converter is
+        # `lambda value: value in ("1", "TRUE")` and duckdb writes `true`.
+        # A wrong answer rather than a refusal, so nothing anywhere failed.
+        #
+        # Asserted through the connector on purpose: the raw JSON was always
+        # self-consistent, and reading it here would have agreed with the
+        # emulator about a value the client disagreed with.
+        cur.execute(
+            "SELECT TRUE AS t, FALSE AS f, NULL IS NULL AS n, 1 IS NOT NULL AS x, "
+            "'true' AS word"
+        )
+        flags = cur.fetchone()
+        if flags is None:
+            raise SystemExit("no row for the boolean check")
+        if flags[:4] != (True, False, True, True):
+            raise SystemExit(f"booleans read {flags[:4]!r}, want (True, False, True, True)")
+        if flags[4] != "true":
+            raise SystemExit(f"a text column holding {flags[4]!r} was rewritten as a boolean")
+
+        print(f"e2e-sql: booleans {flags[:4]}, text {flags[4]!r} untouched")
         print("e2e-sql: SELECT 1 dialect=duckdb; COPY INTO ok")
         return 0
     finally:

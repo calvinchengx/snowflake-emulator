@@ -33,6 +33,25 @@ carry its columns. `SHOW FUNCTIONS` returns the five columns dbt selects with
 zero rows, because "no UDFs" is an answer and an empty result with no columns
 is not.
 
+## A boolean is spelled the way the client reads it
+
+`TRUE` and `FALSE`, not duckdb's `true` and `false`, because the client is the
+one that has to understand it. snowflake-connector-python converts a boolean
+column with
+
+```python
+lambda value: value in ("1", "TRUE")
+```
+
+so duckdb's spelling answered **false for every boolean**, a literal `TRUE`
+included. That is a wrong answer rather than a refusal, and nothing anywhere
+failed while it was happening: the JSON this emulator sent was self-consistent,
+and only the client disagreed. It is the reason the test for it asserts through
+the connector rather than reading the response.
+
+gosnowflake has no boolean arm at all in the JSON result format and hands the
+raw string through, so it reads what it is given either way.
+
 ## snowflake-target
 
 The Python client published with each release, pinning the emulator's contract

@@ -109,7 +109,7 @@ will always find it; one auditing a long history will not.
 CREATE STREAM s_src ON TABLE src;
 INSERT INTO src VALUES (2, 'b');
 
-SELECT SYSTEM$STREAM_HAS_DATA('s_src');      -- true
+SELECT SYSTEM$STREAM_HAS_DATA('s_src');      -- TRUE
 SELECT id, v, "METADATA$ACTION" FROM s_src;  -- 2, b, INSERT
 SELECT count(*) FROM s_src;                  -- still 1: a SELECT does not consume
 INSERT INTO sink SELECT id, v FROM s_src;    -- DML does
