@@ -103,12 +103,6 @@ PROBES = [
 # Snowflake in a way a consumer can see. Recorded here so a green probe is not
 # read as full fidelity.
 CAVEATS = {
-    "DATEADD": (
-        "DuckDB widens DATE + INTERVAL to TIMESTAMP unconditionally, and SQL "
-        "unifies a CASE to one type, so no rewrite can return a DATE for a DATE "
-        "and a TIMESTAMP for a TIMESTAMP. Left refused rather than answered "
-        "with the wrong type."
-    ),
     "LATERAL FLATTEN over VARIANT": (
         "value and index only. SEQ, KEY, PATH and THIS are not produced, and "
         "OUTER, RECURSIVE, PATH and MODE are refused by name because each "

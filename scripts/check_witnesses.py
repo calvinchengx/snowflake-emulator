@@ -8,6 +8,10 @@ import re
 import sys
 
 if hasattr(sys.stdout, "reconfigure"):
+    # ty: ignore[call-non-callable]
+    # typeshed types sys.stdout as TextIO, which declares no reconfigure; the
+    # method is on TextIOWrapper, which is what it actually is at runtime. The
+    # hasattr guard above is the check that matters, and it is already here.
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
