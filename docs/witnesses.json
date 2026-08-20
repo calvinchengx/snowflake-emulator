@@ -238,7 +238,8 @@
     "claim": "INFER_SCHEMA",
     "witnesses": [
       "go:TestInferSchemaIsARelationNotOneBlessedSentence",
-      "go:TestInferSchemaUnionsByNameOrItSilentlyDropsColumns"
+      "go:TestInferSchemaUnionsByNameOrItSilentlyDropsColumns",
+      "ci:e2e-infer"
     ]
   },
   "inferschema-composes-where-over-the-result": {
