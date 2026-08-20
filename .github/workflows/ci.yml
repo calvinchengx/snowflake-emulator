@@ -72,8 +72,14 @@ jobs:
       - uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d
         with:
           version: "0.12.3"
-      # No duckdb CLI step: this suite runs the emulator from source and the
-      # bytes it checks are moved by the connector, not by a shell.
+      # The duckdb CLI IS needed, and the first version of this job said it
+      # was not. The connector moves the bytes, but COPY INTO and the SELECT
+      # that counts the rows run through the warehouse, which is duckdb. It
+      # passed locally only because a developer machine has it on PATH.
+      - name: Install duckdb CLI
+        run: |
+          curl -fsSL -o /tmp/duckdb.zip https://github.com/duckdb/duckdb/releases/download/v1.2.2/duckdb_cli-linux-amd64.zip
+          sudo unzip -o /tmp/duckdb.zip -d /usr/local/bin
       - run: uv run --frozen --group sql python e2e/put/run.py
 
   e2e-iceberg:
