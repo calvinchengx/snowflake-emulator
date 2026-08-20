@@ -417,6 +417,17 @@ func (s *Server) runSQL(w http.ResponseWriter, tok string, sess session, sqlText
 		upper = strings.ToUpper(sqlText)
 	}
 
+	// INFER_SCHEMA becomes a relation for the same reason TASK_HISTORY does:
+	// so a caller can put a WHERE or an ORDER BY on it and have the engine
+	// answer, rather than this emulator recognising one blessed sentence.
+	if expanded, err := s.expandInferSchema(sqlText); err != nil {
+		writeFail(w, http.StatusOK, "001041", err.Error())
+		return
+	} else if expanded != sqlText {
+		sqlText = expanded
+		upper = strings.ToUpper(sqlText)
+	}
+
 	// A stream reference becomes the rows it owes. This runs after the DDL
 	// above so that CREATE STREAM is not itself expanded, and before the
 	// engine so the engine never sees a name it has no table for.

@@ -233,6 +233,36 @@
       "go:TestPutAnswersTheContractBothDriversRead"
     ]
   },
+  "inferschema": {
+    "section": "Stages",
+    "claim": "INFER_SCHEMA",
+    "witnesses": [
+      "go:TestInferSchemaIsARelationNotOneBlessedSentence",
+      "go:TestInferSchemaUnionsByNameOrItSilentlyDropsColumns"
+    ]
+  },
+  "inferschema-composes-where-over-the-result": {
+    "section": "Stages",
+    "claim": "INFER_SCHEMA composes (WHERE over the result)",
+    "witnesses": [
+      "go:TestInferSchemaIsARelationNotOneBlessedSentence"
+    ]
+  },
+  "inferschema-without-fileformat-is-refused": {
+    "section": "Stages",
+    "claim": "INFER_SCHEMA without FILE_FORMAT is refused",
+    "witnesses": [
+      "go:TestInferSchemaRefusesWhatItCannotHonour"
+    ]
+  },
+  "snowflake-scalar-type-names-in-ddl": {
+    "section": "SQL",
+    "claim": "Snowflake scalar type names in DDL",
+    "witnesses": [
+      "go:TestSnowflakeScalarTypesReachDuckdb",
+      "go:TestBareNumberIsThirtyEightZeroNotDuckdbsDefault"
+    ]
+  },
   "taskhistory": {
     "section": "Tasks and streams",
     "claim": "TASK_HISTORY",

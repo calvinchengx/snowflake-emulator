@@ -70,7 +70,19 @@ PROBES = [
      "must_fail"),
     ("Stages", "PUT", "PUT file:///tmp/parity.csv @~"),
     ("Stages", "REMOVE", "REMOVE @~/parity.csv"),
-    ("Stages", "INFER_SCHEMA", "SELECT * FROM TABLE(INFER_SCHEMA(LOCATION => '@~/parity.csv'))"),
+    # FILE_FORMAT IS REQUIRED, and the old probe here omitted it -- so the
+    # statement this file was measuring is one a real account rejects, which
+    # makes a red row unreadable: it could mean the feature is missing or the
+    # probe is wrong. Both forms are measured now.
+    ("Stages", "INFER_SCHEMA",
+     "SELECT * FROM TABLE(INFER_SCHEMA(LOCATION => '@~/parity_feed/', FILE_FORMAT => 'p_ff'))"),
+    ("Stages", "INFER_SCHEMA composes (WHERE over the result)",
+     "SELECT \"COLUMN_NAME\" FROM TABLE(INFER_SCHEMA(LOCATION => '@~/parity_feed/', "
+     "FILE_FORMAT => 'p_ff')) WHERE \"TYPE\" <> 'TEXT'"),
+    ("Stages", "INFER_SCHEMA without FILE_FORMAT is refused",
+     "SELECT * FROM TABLE(INFER_SCHEMA(LOCATION => '@~/parity_feed/'))", "must_fail"),
+    ("SQL", "Snowflake scalar type names in DDL",
+     "CREATE OR REPLACE TABLE p_types (a NUMBER(38,0), b NUMBER, c TIMESTAMP_NTZ, d TIMESTAMP_LTZ)"),
 
     ("Tasks and streams", "TASK_HISTORY",
      "SELECT NAME, STATE FROM TABLE(INFORMATION_SCHEMA.TASK_HISTORY(RESULT_LIMIT => 10))"),
@@ -115,6 +127,16 @@ PROBES = [
 # Snowflake in a way a consumer can see. Recorded here so a green probe is not
 # read as full fidelity.
 CAVEATS = {
+    "INFER_SCHEMA": (
+        "TYPE reports the names an ACCOUNT reports -- NUMBER(38,0), "
+        "TIMESTAMP_NTZ -- so a CREATE TABLE built from it is portable. "
+        "DESCRIBE TABLE still reports the ENGINE's names (DECIMAL(38,0)), and "
+        "deliberately: the family's `money_is_never_stored_as_float` contract "
+        "accepts only `decimal` and `numeric` prefixes, so renaming what "
+        "DESCRIBE reports would fail 52 gold contracts. The two statements "
+        "answer in different vocabularies and that is recorded rather than "
+        "reconciled."
+    ),
     "LATERAL FLATTEN over VARIANT": (
         "value and index only. SEQ, KEY, PATH and THIS are not produced, and "
         "OUTER, RECURSIVE, PATH and MODE are refused by name because each "
@@ -181,6 +203,15 @@ WITNESSES = {
     "SELECT, CTE, window": ["ci:e2e-sql"],
     "COPY INTO from an internal stage": ["ci:e2e-sql"],
     "COPY INTO with a named format": ["ci:e2e-sql"],
+    "INFER_SCHEMA": ["go:TestInferSchemaIsARelationNotOneBlessedSentence",
+                     "go:TestInferSchemaUnionsByNameOrItSilentlyDropsColumns"],
+    "INFER_SCHEMA composes (WHERE over the result)":
+        ["go:TestInferSchemaIsARelationNotOneBlessedSentence"],
+    "INFER_SCHEMA without FILE_FORMAT is refused":
+        ["go:TestInferSchemaRefusesWhatItCannotHonour"],
+    "Snowflake scalar type names in DDL":
+        ["go:TestSnowflakeScalarTypesReachDuckdb",
+         "go:TestBareNumberIsThirtyEightZeroNotDuckdbsDefault"],
     "CREATE / SHOW / SUSPEND": ["ci:e2e-sql"],
     # ci:parity proves it is REFUSED. The claim is that it is refused BY NAME,
     # and only the Go test reads the message, so the row cites both. A witness

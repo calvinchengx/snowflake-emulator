@@ -12,10 +12,29 @@ model in the Contoso product needs it today, which is why it has waited.
 **`OBJECT_CONSTRUCT`.** The one common semi-structured constructor still
 missing.
 
-**Typed CSV loading.** `COPY INTO` from a CSV lands every column as text,
-where Spark's reader infers. A consumer whose bronze arrives as CSV must cast
-in silver, and a date column that is really a string is the kind of difference
-that surfaces three layers later.
+**`REMOVE`.** The counterpart to `PUT`, which shipped. A stage you can write
+and never clear grows for the life of the container.
+
+**`COPY INTO` from a prefix.** `INFER_SCHEMA` describes a whole feed now, but
+`COPY INTO` still resolves one name, so a paged feed is a loop in the caller.
+The two ought to take the same reference.
+
+**Stored procedures.** `CALL` and `SYSTEM$WAIT` are refused. Listed here rather
+than left unclassified: this page previously named neither these nor `REMOVE`
+in either section, which for a project whose whole claim is that a gap can be
+planned around is the documentation version of the defect it guards against.
+
+## Done since this page was written
+
+**Typed loading, via `INFER_SCHEMA`.** The entry that used to head this list.
+`COPY INTO` fills a table that already exists, so with nothing to ask, both
+Contoso Snowflake leaves grew their own sampler -- read some rows, classify
+each cell, widen, emit DDL. Two copies of a type-inference heuristic living in
+the product because the warehouse would not answer the question. It answers now,
+and the answer carries Snowflake's own type names, which meant teaching the
+emulator to accept them in DDL as well: `CREATE TABLE t (a NUMBER(38,0))` was
+refused by its own inference until that landed. Measured, not assumed -- see
+`docs/06-stages-and-copy.md`.
 
 ## Deliberately not planned
 

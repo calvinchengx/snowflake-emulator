@@ -103,6 +103,60 @@ Carried through: `SKIP_HEADER`, `FIELD_DELIMITER`,
 `FIELD_OPTIONALLY_ENCLOSED_BY`, `ESCAPE`, `NULL_IF`, and `TYPE` for CSV, JSON
 and PARQUET.
 
+## `INFER_SCHEMA` answers what the feed holds
+
+`COPY INTO` fills a table that already **exists**, so something has to decide
+the column types first. Landing everything as text is not the neutral choice it
+looks like: a date column arrives as `TEXT`, silver does date arithmetic on it,
+and the reader gets `No function matches the given name and argument types
+'+(VARCHAR, INTEGER)'` three layers away from the `COPY` that decided it.
+
+```sql
+CREATE FILE FORMAT my_csv TYPE = CSV SKIP_HEADER = 1;
+
+SELECT "COLUMN_NAME", "TYPE"
+FROM TABLE(INFER_SCHEMA(LOCATION => '@~/feed/', FILE_FORMAT => 'my_csv'))
+ORDER BY "ORDER_ID";
+```
+
+```
+order_id   | NUMBER(38,0)
+order_date | DATE
+amount     | FLOAT
+ok         | BOOLEAN
+```
+
+Four things about it are worth knowing:
+
+**A prefix is the ordinary form**, unlike `COPY INTO`, which resolves one name.
+A feed is a directory of parts and describing it is the whole point.
+
+**Files that disagree are unioned by name.** `FILENAMES` is per column — a
+column only the second file carries lists only that file. Returning the whole
+list for every column would be right only when the files agree, and wrong
+exactly when a caller most needs to know.
+
+**`FILE_FORMAT` is required**, as it is in a real account. Guessing CSV would
+read a JSON feed as one text column per line and call it an inference.
+
+**It is a relation, not one blessed sentence.** `WHERE`, `ORDER BY` and joins
+over the result are the engine's own.
+
+## Snowflake's type names in DDL
+
+`INFER_SCHEMA` reports the names an **account** reports, so a `CREATE TABLE`
+built from its answer is one you could run against real Snowflake. That means
+this emulator has to accept them too: `NUMBER`, `NUMBER(p,s)`, `TIMESTAMP_NTZ`,
+`TIMESTAMP_LTZ` and `TIMESTAMP_TZ` are mapped to the engine's spellings in DDL,
+alongside `VARIANT`, `OBJECT` and `ARRAY`. Bare `NUMBER` becomes
+`DECIMAL(38,0)` — Snowflake's default, not the engine's `(18,3)`.
+
+`DESCRIBE TABLE` still reports the **engine's** names, and deliberately. This
+family's `money_is_never_stored_as_float` contract accepts only `decimal` and
+`numeric` prefixes, so renaming what `DESCRIBE` reports would fail all 52 gold
+contracts. The two statements answer in different vocabularies; that is
+recorded rather than reconciled.
+
 ## External stages
 
 Refused by name. `s3://` and `azure://` are different things with credentials
@@ -113,6 +167,8 @@ exactly where the credentials matter.
 
 - `PUT` is a client-side upload protocol and is not implemented — put the bytes
   in the directory.
-- `REMOVE` and `INFER_SCHEMA` are refused.
+- `REMOVE` is refused.
+- `INFER_SCHEMA` describes a prefix; `COPY INTO` still loads one named
+  file at a time, so a paged feed is a loop in the caller.
 - `LIST @~` walks the whole stage directory, so a named stage created inside it
   appears in the user stage's listing.

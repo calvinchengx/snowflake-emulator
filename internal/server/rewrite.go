@@ -55,6 +55,7 @@ func rewriteSQL(sql string, sess session) (string, string, bool, error) {
 	out = rewriteCurrentFns(out, sess)
 	out = rewriteDateParts(out)
 	out = rewriteVariantTypes(out)
+	out = rewriteSnowflakeTypes(out)
 	out = rewriteColonPaths(out)
 	out = rewriteGenerator(out)
 	added, aerr := rewriteDateAdd(out)
