@@ -583,8 +583,8 @@ func (s *Server) rewriteCopy(sqlText string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	src := filepath.Join(dir, filepath.FromSlash(path))
-	if _, err := os.Stat(src); err != nil {
+	src, err := stageFile(dir, path)
+	if err != nil {
 		return "", fmt.Errorf("stage file @%s/%s: %w", stage, path, err)
 	}
 

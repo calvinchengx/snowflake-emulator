@@ -66,7 +66,7 @@ the same run.
 | COPY INTO JSON |  | 🟢 |
 | External stages are refused |  | 🟢 |
 | An unsupported format option is refused |  | 🟢 |
-| PUT | duckdb: Parser Error: syntax error at or near "PUT" — A client-side upload protocol. This emulator takes the bytes from SNOWFLAKE_STAGE_DIR instead. | 🔴 |
+| PUT | The driver uploads the bytes itself, as it does against a real account: the answer names LOCAL_FS and the stage directory, and the connector's file transfer agent does the copying. AUTO_COMPRESS defaults to TRUE, so the stage holds `<name>.gz`. Set SNOWFLAKE_STAGE_CLIENT_DIR when the client sees the stage at a different path than the server does. | 🟢 |
 | REMOVE | duckdb: Parser Error: syntax error at or near "REMOVE" | 🔴 |
 | INFER_SCHEMA | duckdb: Parser Error: syntax error at or near "TABLE" | 🔴 |
 
@@ -108,4 +108,4 @@ the same run.
 |---|---|---|
 | CREATE / SHOW / SUSPEND |  | 🟢 |
 
-_50 of 59 answered._
+_51 of 59 answered._

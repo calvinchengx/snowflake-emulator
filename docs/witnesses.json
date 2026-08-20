@@ -217,6 +217,14 @@
       "ci:parity"
     ]
   },
+  "put": {
+    "section": "Stages",
+    "claim": "PUT",
+    "witnesses": [
+      "ci:e2e-put",
+      "go:TestPutAnswersTheContractBothDriversRead"
+    ]
+  },
   "show-tables": {
     "section": "Catalog",
     "claim": "SHOW TABLES",

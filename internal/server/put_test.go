@@ -1,0 +1,169 @@
+package server
+
+import (
+	"encoding/json"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/calvinchengx/snowflake-emulator/internal/config"
+)
+
+// put drives the handler the way the drivers do: the statement goes in, the
+// upload instructions come back. No bytes move here, because in the real
+// protocol the client moves them.
+func put(t *testing.T, s *Server, sql string) (map[string]any, bool) {
+	t.Helper()
+	w := httptest.NewRecorder()
+	if !s.handleStageSQL(w, sql) {
+		t.Fatalf("PUT was not recognised as a stage statement: %q", sql)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("response is not JSON: %v", err)
+	}
+	ok, _ := body["success"].(bool)
+	data, _ := body["data"].(map[string]any)
+	return data, ok
+}
+
+func stageServer(t *testing.T) (*Server, string) {
+	t.Helper()
+	dir := t.TempDir()
+	return &Server{Cfg: config.Config{StageDir: dir}}, dir
+}
+
+func TestPutAnswersTheContractBothDriversRead(t *testing.T) {
+	// The field list is not decoration. gosnowflake reads data.command and
+	// data.stageInfo; the Python connector's _parse_command raises unless
+	// src_locations is a LIST and stageInfo carries locationType, location
+	// and creds. A response missing any of them fails inside the driver,
+	// where the error names nothing useful.
+	s, dir := stageServer(t)
+	data, ok := put(t, s, "PUT file:///tmp/orders.csv @~")
+	if !ok {
+		t.Fatalf("PUT was refused: %v", data)
+	}
+	if data["command"] != "UPLOAD" {
+		t.Errorf("command = %v, want UPLOAD", data["command"])
+	}
+	src, isList := data["src_locations"].([]any)
+	if !isList || len(src) != 1 || src[0] != "/tmp/orders.csv" {
+		t.Errorf("src_locations = %#v, want a one-element list holding the path", data["src_locations"])
+	}
+	info, _ := data["stageInfo"].(map[string]any)
+	if info["locationType"] != "LOCAL_FS" {
+		t.Errorf("locationType = %v, want LOCAL_FS", info["locationType"])
+	}
+	if got := info["location"]; got != dir+string(os.PathSeparator) {
+		t.Errorf("location = %v, want the stage directory %q", got, dir)
+	}
+	if _, present := info["creds"]; !present {
+		t.Error("creds must be present even though LOCAL_FS needs none: the Python connector indexes it")
+	}
+}
+
+func TestAutoCompressDefaultsToSnowflakesTrue(t *testing.T) {
+	// TRUE is what a real account does, so `PUT file://orders.csv @~` lands
+	// orders.csv.gz there. Answering FALSE would be more convenient here and
+	// would teach a consumer the wrong stage contents.
+	s, _ := stageServer(t)
+	data, _ := put(t, s, "PUT file:///tmp/orders.csv @~")
+	if data["autoCompress"] != true {
+		t.Errorf("autoCompress = %v, want true", data["autoCompress"])
+	}
+	data, _ = put(t, s, "PUT file:///tmp/orders.csv @~ AUTO_COMPRESS = FALSE")
+	if data["autoCompress"] != false {
+		t.Errorf("AUTO_COMPRESS = FALSE was not honoured: %v", data["autoCompress"])
+	}
+}
+
+func TestAPutOptionWeCannotHonourIsRefused(t *testing.T) {
+	// Same rule the file formats keep. A dropped option that changes what the
+	// driver does is a success report for something else.
+	s, _ := stageServer(t)
+	data, ok := put(t, s, "PUT file:///tmp/orders.csv @~ MAGIC = TRUE")
+	if ok {
+		t.Fatal("an unknown PUT option was accepted")
+	}
+	if msg, _ := data["errorMessage"].(string); !strings.Contains(msg, "MAGIC") {
+		t.Errorf("the refusal must name the option, got %q", msg)
+	}
+}
+
+func TestPutFromSomewhereWeCannotReadIsRefusedByName(t *testing.T) {
+	s, _ := stageServer(t)
+	data, ok := put(t, s, "PUT s3://bucket/orders.csv @~")
+	if ok {
+		t.Fatal("PUT from s3:// was accepted; this emulator uploads from file:// only")
+	}
+	if msg, _ := data["errorMessage"].(string); !strings.Contains(msg, "s3://") {
+		t.Errorf("the refusal must name the scheme, got %q", msg)
+	}
+}
+
+func TestPutIntoAStageThatDoesNotExistIsRefused(t *testing.T) {
+	s, _ := stageServer(t)
+	if _, ok := put(t, s, "PUT file:///tmp/orders.csv @landing"); ok {
+		t.Fatal("PUT into an uncreated named stage was accepted")
+	}
+}
+
+func TestPutNamesThePathTheClientCanWrite(t *testing.T) {
+	// The container case. This process sees /stages; a client on the host
+	// sees somewhere else, and the driver -- not this process -- does the
+	// copying. Answering our own path would send the bytes into a directory
+	// the client either cannot write or does not share, and the failure would
+	// surface two statements later at COPY INTO.
+	ours := t.TempDir()   // what this process sees, e.g. /stages
+	theirs := t.TempDir() // what the client sees, the host side of the mount
+	s := &Server{Cfg: config.Config{StageDir: ours, StageClientDir: theirs}}
+	data, ok := put(t, s, "PUT file:///tmp/orders.csv @~")
+	if !ok {
+		t.Fatalf("PUT was refused: %v", data)
+	}
+	info, _ := data["stageInfo"].(map[string]any)
+	got, _ := info["location"].(string)
+	if !strings.HasPrefix(got, theirs) {
+		t.Errorf("location = %q, want it under the client's view %q", got, theirs)
+	}
+	if strings.HasPrefix(got, ours) {
+		t.Errorf("location = %q is OUR path; the client cannot write there", got)
+	}
+}
+
+func TestCopyIntoFindsWhatPutLeftBehind(t *testing.T) {
+	// The two halves have to meet. AUTO_COMPRESS is on by default, so the
+	// file in the stage is orders.csv.gz while the consumer's COPY INTO names
+	// orders.csv -- which real Snowflake resolves by prefix. Without the .gz
+	// arm this emulator answers "no such file" for the file it just accepted.
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "orders.csv.gz"), []byte("gz"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := stageFile(dir, "orders.csv")
+	if err != nil {
+		t.Fatalf("COPY INTO could not find the uploaded file: %v", err)
+	}
+	if filepath.Base(got) != "orders.csv.gz" {
+		t.Errorf("resolved %q, want orders.csv.gz", got)
+	}
+}
+
+func TestAnExactNameStillWinsAndAMissingFileStillFails(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "orders.csv"), []byte("a,b\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := stageFile(dir, "orders.csv")
+	if err != nil || filepath.Base(got) != "orders.csv" {
+		t.Fatalf("exact match must win: %q %v", got, err)
+	}
+	// The honest failure this repository keeps having to restore: a stage
+	// file that is not there is an error, never an empty load reported ok.
+	if _, err := stageFile(dir, "absent.csv"); err == nil {
+		t.Error("a missing stage file was resolved")
+	}
+}

@@ -138,8 +138,12 @@ CAVEATS = {
         "an error here where Snowflake would answer."
     ),
     "PUT": (
-        "A client-side upload protocol. This emulator takes the bytes from "
-        "SNOWFLAKE_STAGE_DIR instead."
+        "The driver uploads the bytes itself, as it does against a real "
+        "account: the answer names LOCAL_FS and the stage directory, and the "
+        "connector's file transfer agent does the copying. AUTO_COMPRESS "
+        "defaults to TRUE, so the stage holds `<name>.gz`. Set "
+        "SNOWFLAKE_STAGE_CLIENT_DIR when the client sees the stage at a "
+        "different path than the server does."
     ),
     "LIST": (
         "Walks the whole stage directory, so a named stage created inside it "
@@ -158,4 +162,5 @@ WITNESSES = {
     "COPY INTO from an internal stage": ["ci:e2e-sql"],
     "COPY INTO with a named format": ["ci:e2e-sql"],
     "CREATE / SHOW / SUSPEND": ["ci:e2e-sql"],
+    "PUT": ["ci:e2e-put", "go:TestPutAnswersTheContractBothDriversRead"],
 }
