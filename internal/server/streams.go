@@ -196,6 +196,12 @@ func (s *Server) streamHasData(name string) (bool, error) {
 	st, ok := s.streams[streamKey(name)]
 	s.mu.Unlock()
 	if !ok {
+		// Snowflake's own wording, capital included. This error is written
+		// straight to the client by the caller as writeFail(..., "002003",
+		// err.Error()), so it is wire format rather than a Go error string,
+		// and lowercasing it to satisfy ST1005 would make the emulator's
+		// message differ from the one a driver expects.
+		//nolint:staticcheck // ST1005: Snowflake message, not Go idiom
 		return false, fmt.Errorf("Stream %s does not exist", name)
 	}
 	n, err := s.scalar(fmt.Sprintf("SELECT count(*) FROM %s WHERE rowid >= %d", st.Table, st.Offset))

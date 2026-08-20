@@ -86,7 +86,7 @@ func (s *Server) handleTaskSQL(w http.ResponseWriter, sqlText string) bool {
 			return true
 		}
 		writeQueryOK(w, []string{"status"},
-			[][]string{{fmt.Sprintf("Statement executed successfully.")}}, "duckdb")
+			[][]string{{"Statement executed successfully."}}, "duckdb")
 		return true
 	}
 
@@ -209,6 +209,10 @@ func (s *Server) graphFrom(root string) ([]*task, error) {
 	defer s.mu.Unlock()
 	start, ok := s.tasks[root]
 	if !ok {
+		// Wire format, as above: written by the caller as
+		// writeFail(..., "002003", err.Error()), and the sibling literal at
+		// the SHOW TASKS handler spells it the same way on purpose.
+		//nolint:staticcheck // ST1005: Snowflake message, not Go idiom
 		return nil, fmt.Errorf("Task %s does not exist", root)
 	}
 	children := map[string][]*task{}

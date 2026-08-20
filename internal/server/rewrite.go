@@ -213,7 +213,7 @@ func codeRegions(sql string) []region {
 		case sql[i] == '/' && i+1 < len(sql) && sql[i+1] == '*':
 			out = append(out, region{start, i})
 			i += 2
-			for i+1 < len(sql) && !(sql[i] == '*' && sql[i+1] == '/') {
+			for i+1 < len(sql) && (sql[i] != '*' || sql[i+1] != '/') {
 				i++
 			}
 			i = min(i+2, len(sql))
