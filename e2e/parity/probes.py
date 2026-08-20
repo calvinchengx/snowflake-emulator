@@ -98,8 +98,14 @@ PROBES = [
     # is what a wrong belief looks like once it has been written down twice, in
     # the code and in the thing that measures the code. Snowflake requires a
     # schedule only for a task that must start itself.
+    # NO OPTION CLAUSE AT ALL -- the barest manual task Snowflake accepts, where
+    # naming no WAREHOUSE means a serverless task. Spelled without options
+    # DELIBERATELY: the first version of this probe wrote
+    # `... WAREHOUSE = parity_wh AS SELECT 1`, which made the regex match and
+    # passed while the barest form still fell through to duckdb. A probe that
+    # picks a comfortable spelling measures the spelling.
     ("Orchestration", "A manual task (no SCHEDULE, no AFTER)",
-     "CREATE TASK p_manual WAREHOUSE = parity_wh AS SELECT 1"),
+     "CREATE TASK p_manual AS SELECT 1"),
     ("Orchestration", "EXECUTE TASK on a manual task", "EXECUTE TASK p_manual"),
     ("Orchestration", "CREATE STREAM", "CREATE STREAM p_stream ON TABLE p_t"),
     ("Orchestration", "Reading a stream", "SELECT count(*) FROM p_stream"),
