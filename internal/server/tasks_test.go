@@ -30,6 +30,50 @@ func TestAfterMakesAGraph(t *testing.T) {
 	}
 }
 
+func TestATaskWithNoOptionClauseAtAll(t *testing.T) {
+	// `CREATE TASK t AS <sql>` -- no warehouse, no schedule, no predecessor.
+	// Snowflake accepts it: a task naming no WAREHOUSE is a SERVERLESS task
+	// there, a real thing rather than an omission.
+	//
+	// THE OTHER HALF OF #39, and missed by the probe written alongside it. That
+	// probe spelled the manual task `CREATE TASK p_manual WAREHOUSE = parity_wh
+	// AS SELECT 1`; the option clause made the regex match, so it passed while
+	// the barest form still fell through to duckdb and came back
+	// `Parser Error ... near "TASK"` -- naming neither the statement nor why.
+	// A probe that picks a comfortable spelling measures the spelling.
+	for _, sql := range []string{
+		"CREATE TASK t AS SELECT 1",
+		"CREATE OR REPLACE TASK t AS SELECT 1",
+		"CREATE TASK IF NOT EXISTS t AS SELECT 1",
+	} {
+		m := reCreateTask.FindStringSubmatch(sql)
+		if m == nil {
+			t.Fatalf("%q did not parse as a task, so it falls through to duckdb", sql)
+		}
+		if m[1] != "t" || strings.TrimSpace(m[3]) != "SELECT 1" {
+			t.Fatalf("%q parsed as name=%q body=%q", sql, m[1], m[3])
+		}
+		got, err := parseTask(m[1], m[2], m[3])
+		if err != nil {
+			t.Fatalf("%q: %v", sql, err)
+		}
+		if got.Warehouse != "" || got.Schedule != 0 || len(got.After) != 0 {
+			t.Fatalf("%q: %+v", sql, got)
+		}
+	}
+
+	// The option clause still parses when it IS there -- relaxing the regex must
+	// not make `WAREHOUSE = wh` part of the body.
+	m := reCreateTask.FindStringSubmatch("CREATE TASK t WAREHOUSE = wh AS SELECT 1")
+	if m == nil {
+		t.Fatal("a task WITH options stopped parsing")
+	}
+	got, err := parseTask(m[1], m[2], m[3])
+	if err != nil || got.Warehouse != "wh" || strings.TrimSpace(got.SQL) != "SELECT 1" {
+		t.Fatalf("%+v %v", got, err)
+	}
+}
+
 func TestAManualTaskIsAcceptedAndNeverSelfFires(t *testing.T) {
 	// THIS TEST USED TO ASSERT THE OPPOSITE, and it was wrong.
 	//

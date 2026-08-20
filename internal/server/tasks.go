@@ -39,7 +39,19 @@ type task struct {
 }
 
 var (
-	reCreateTask = regexp.MustCompile(`(?is)^CREATE\s+(?:OR\s+REPLACE\s+)?TASK\s+(?:IF\s+NOT\s+EXISTS\s+)?([A-Za-z0-9_$."]+)\s+(.*?)\s+AS\s+(.*)$`)
+	// THE OPTION CLAUSE IS OPTIONAL, and `CREATE TASK t AS <sql>` is the purest
+	// manual task: no warehouse, no schedule, no predecessor, run only by
+	// EXECUTE TASK. Snowflake accepts it -- a task that names no WAREHOUSE is a
+	// SERVERLESS task there, which is a real thing and not an omission.
+	//
+	// This is the other half of the manual task (#39), and it was missed because
+	// the parity probe written alongside that fix spelled it
+	// `CREATE TASK p_manual WAREHOUSE = parity_wh AS SELECT 1`. The option
+	// clause made the regex match, so the probe passed and the barest form still
+	// fell through to duckdb -- which answers `Parser Error ... near "TASK"`,
+	// naming neither the statement nor why. A probe that picks a comfortable
+	// spelling measures the spelling.
+	reCreateTask = regexp.MustCompile(`(?is)^CREATE\s+(?:OR\s+REPLACE\s+)?TASK\s+(?:IF\s+NOT\s+EXISTS\s+)?([A-Za-z0-9_$."]+)\s+(?:(.*?)\s+)?AS\s+(.*)$`)
 	reAlterTask  = regexp.MustCompile(`(?i)^ALTER\s+TASK\s+(?:IF\s+EXISTS\s+)?([A-Za-z0-9_$."]+)\s+(RESUME|SUSPEND)\b`)
 	reDropTask   = regexp.MustCompile(`(?i)^DROP\s+TASK\s+(?:IF\s+EXISTS\s+)?([A-Za-z0-9_$."]+)`)
 	reShowTasks  = regexp.MustCompile(`(?i)^SHOW\s+(?:TERSE\s+)?TASKS\b`)
