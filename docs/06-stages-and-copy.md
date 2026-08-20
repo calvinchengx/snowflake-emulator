@@ -68,9 +68,30 @@ PUT file:///tmp/orders.csv @~   →   the stage holds orders.csv.gz
 Answering `FALSE` would be more convenient here and would teach a consumer the
 wrong stage contents. Because real Snowflake resolves a stage path by prefix,
 `COPY INTO ... FROM @~/orders.csv` finds that compressed file there; this
-emulator resolves one name and its `.gz` spelling, which is **narrower**. A
-prefix naming several files loads all of them on a real account and is not
-implemented here, rather than being half-implemented as "the first one".
+emulator resolves one name and its `.gz` spelling, which is **narrower**.
+
+A prefix naming several files loads all of them on a real account. Here it is
+**refused by name**, rather than half-implemented as "the first one":
+
+```
+COPY INTO t FROM @~/feed/
+  →  COPY INTO from a prefix is not implemented (a trailing slash): name one
+     file. Snowflake loads every file under a prefix; this resolves one name
+     and the .gz that AUTO_COMPRESS leaves
+```
+
+A trailing slash, a directory, a glob and the bare stage are all refused this
+way. It used to come back as duckdb's own words instead:
+
+```
+duckdb: IO Error: No files found that match the pattern "/stages/feed"
+```
+
+which is a refusal and not a silence, so nothing was ever loaded wrongly. But
+it names a path inside the container and a duckdb concept, and leaves the
+reader to work out that the FEATURE is missing rather than the file. A
+consumer did work that out, and wrote the loop that names each part with a
+comment explaining why.
 
 ## An option that cannot be honoured is refused
 

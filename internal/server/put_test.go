@@ -167,3 +167,63 @@ func TestAnExactNameStillWinsAndAMissingFileStillFails(t *testing.T) {
 		t.Error("a missing stage file was resolved")
 	}
 }
+
+func TestAPrefixIsRefusedByNameRatherThanByDuckdb(t *testing.T) {
+	// Measured before this existed: `COPY INTO t FROM @~/feed/` came back as
+	// `duckdb: IO Error: No files found that match the pattern "/stages/feed"`.
+	// That is a refusal, so nothing was silent, but it names a path inside a
+	// container and a duckdb concept. A reader has to deduce that the FEATURE
+	// is missing rather than the file.
+	dir := t.TempDir()
+	feed := filepath.Join(dir, "feed")
+	if err := os.MkdirAll(feed, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"part_0.csv", "part_1.csv"} {
+		if err := os.WriteFile(filepath.Join(feed, name), []byte("n\n1\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tc := range []struct{ path, why string }{
+		{"feed/", "a trailing slash"},
+		{"feed", "a directory"},
+		{"feed/*.csv", "a glob"},
+		{"", "the whole stage"},
+	} {
+		_, err := stageFile(dir, tc.path)
+		if err == nil {
+			t.Errorf("%q was resolved; a prefix must be refused", tc.path)
+			continue
+		}
+		if !strings.Contains(err.Error(), "COPY INTO from a prefix is not implemented") {
+			t.Errorf("%q refused as %q, which does not name the missing feature", tc.path, err)
+		}
+	}
+}
+
+func TestTheRefusalSaysWhatToDoInstead(t *testing.T) {
+	// A refusal that names the gap and not the remedy sends the reader to the
+	// source. Both halves are asserted because both were written on purpose.
+	_, err := stageFile(t.TempDir(), "feed/")
+	if err == nil {
+		t.Fatal("a prefix was resolved")
+	}
+	for _, want := range []string{"name one file", "Snowflake loads every file under a prefix"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("refusal %q is missing %q", err, want)
+		}
+	}
+}
+
+func TestANamedFileIsStillNotAPrefix(t *testing.T) {
+	// The guard must not swallow the ordinary case, including the .gz arm
+	// that PUT depends on.
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "orders.csv.gz"), []byte("gz"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := stageFile(dir, "orders.csv")
+	if err != nil || filepath.Base(got) != "orders.csv.gz" {
+		t.Fatalf("a named file must still resolve: %q %v", got, err)
+	}
+}

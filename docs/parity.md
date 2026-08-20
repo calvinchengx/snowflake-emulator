@@ -66,6 +66,7 @@ the same run.
 | COPY INTO JSON |  | 🟢 |
 | External stages are refused |  | 🟢 |
 | An unsupported format option is refused |  | 🟢 |
+| A prefix is refused | Real Snowflake resolves a stage reference by prefix and loads EVERY file under it, which is the ordinary way to load a paged feed. This resolves one name and the `.gz` AUTO_COMPRESS leaves, so a prefix is refused BY NAME. It used to come back as duckdb's own words about a path inside the container, which left the reader to work out that the feature was missing rather than the file. | 🟢 |
 | PUT | The driver uploads the bytes itself, as it does against a real account: the answer names LOCAL_FS and the stage directory, and the connector's file transfer agent does the copying. AUTO_COMPRESS defaults to TRUE, so the stage holds `<name>.gz`. Set SNOWFLAKE_STAGE_CLIENT_DIR when the client sees the stage at a different path than the server does. | 🟢 |
 | REMOVE | duckdb: Parser Error: syntax error at or near "REMOVE" | 🔴 |
 | INFER_SCHEMA | duckdb: Parser Error: syntax error at or near "TABLE" | 🔴 |
@@ -109,4 +110,4 @@ the same run.
 |---|---|---|
 | CREATE / SHOW / SUSPEND |  | 🟢 |
 
-_52 of 60 answered._
+_53 of 61 answered._

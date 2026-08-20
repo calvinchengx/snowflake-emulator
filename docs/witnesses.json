@@ -217,6 +217,14 @@
       "ci:parity"
     ]
   },
+  "a-prefix-is-refused": {
+    "section": "Stages",
+    "claim": "A prefix is refused",
+    "witnesses": [
+      "ci:parity",
+      "go:TestAPrefixIsRefusedByNameRatherThanByDuckdb"
+    ]
+  },
   "put": {
     "section": "Stages",
     "claim": "PUT",
