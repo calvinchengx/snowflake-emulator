@@ -176,12 +176,14 @@ PROBES = [
     # lets a task graph chain run and test with AFTER -- Snowflake's own
     # orchestration example. See dbtproject.go for why a failing dbt run fails
     # the QUERY rather than returning Success = FALSE.
-    ("Orchestration", "CREATE DBT PROJECT",
-     "CREATE DBT PROJECT p_proj FROM '@~/parity_dbt' ENV_VARS = (DBT_P_TAG = 'from_env_vars')"),
+    ("Orchestration", "CREATE DBT PROJECT", "CREATE DBT PROJECT p_proj FROM '@~/parity_dbt'"),
+    ("Orchestration", "ENV_VARS on CREATE is refused, and says where it belongs",
+     "CREATE DBT PROJECT p_bad FROM '@~/parity_dbt' ENV_VARS = (DBT_X = 'y')", "must_fail"),
     ("Orchestration", "An ENV_VARS key dbt would never see is refused",
-     "CREATE DBT PROJECT p_bad FROM '@~/parity_dbt' ENV_VARS = (lower_case = 'x')", "must_fail"),
+     "EXECUTE DBT PROJECT p_proj ARGS='run' ENV_VARS = (lower_case = 'x')", "must_fail"),
     ("Orchestration", "SHOW DBT PROJECTS", "SHOW DBT PROJECTS"),
-    ("Orchestration", "EXECUTE DBT PROJECT", "EXECUTE DBT PROJECT p_proj ARGS='run'"),
+    ("Orchestration", "EXECUTE DBT PROJECT",
+     "EXECUTE DBT PROJECT p_proj ARGS='run' ENV_VARS = (DBT_P_TAG = 'from_env_vars')"),
     ("Orchestration", "dbt really built the models",
      "SELECT CASE WHEN count(*) = 1 THEN 0 ELSE "
      "CAST('dbt reported success and built nothing' AS INT) END AS ok FROM p_dbt_two"),
@@ -196,7 +198,8 @@ PROBES = [
     ("Orchestration", "A dbt task with no warehouse is refused",
      "CREATE TASK p_dbt_nowh AS EXECUTE DBT PROJECT p_proj ARGS='run'", "must_fail"),
     ("Orchestration", "A task body runs EXECUTE DBT PROJECT",
-     "CREATE TASK p_dbt_task WAREHOUSE = parity_wh AS EXECUTE DBT PROJECT p_proj ARGS='run'"),
+     "CREATE TASK p_dbt_task WAREHOUSE = parity_wh AS EXECUTE DBT PROJECT p_proj "
+     "ARGS='run' ENV_VARS = (DBT_P_TAG = 'from_env_vars')"),
     ("Orchestration", "EXECUTE TASK runs the dbt project", "EXECUTE TASK p_dbt_task"),
     ("Orchestration", "DROP DBT PROJECT", "DROP DBT PROJECT p_proj"),
 
@@ -217,6 +220,12 @@ PROBES = [
 # Snowflake in a way a consumer can see. Recorded here so a green probe is not
 # read as full fidelity.
 CAVEATS = {
+    "ENV_VARS on CREATE is refused, and says where it belongs": (
+        "Snowflake puts a project's environment in its env.yml and lets EXECUTE "
+        "DBT PROJECT override it for one run; there is no ENV_VARS on CREATE. "
+        "Storing it there would have the statement a caller actually runs ignore "
+        "it, with the configuration sitting in plain sight in SHOW DBT PROJECTS."
+    ),
     "An ENV_VARS key dbt would never see is refused": (
         "Snowflake requires ENV_VARS keys UPPERCASE and DBT_-prefixed. "
         "Accepting one dbt will never read is the silent kind of wrong: "
@@ -342,6 +351,7 @@ CAVEATS = {
 # statement against the built image and fails if the answer changes.
 WITNESSES = {
     "An ENV_VARS key dbt would never see is refused": ["ci:parity", "go:TestEnvVarsKeysAreRefusedByName"],
+    "ENV_VARS on CREATE is refused, and says where it belongs": ["ci:parity", "go:TestEnvVarsKeysAreRefusedByName"],
     "ENV_VARS reached the dbt process": ["ci:parity"],
     "The task's COPY INTO actually loaded": ["ci:parity", "go:TestATaskBodyIsASnowflakeStatement"],
     "The task's stream read actually inserted": ["ci:parity", "go:TestATaskBodyIsASnowflakeStatement"],

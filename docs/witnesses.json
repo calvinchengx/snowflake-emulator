@@ -444,6 +444,14 @@
       "ci:parity"
     ]
   },
+  "envvars-on-create-is-refused-and-says-where-it-belongs": {
+    "section": "Orchestration",
+    "claim": "ENV_VARS on CREATE is refused, and says where it belongs",
+    "witnesses": [
+      "ci:parity",
+      "go:TestEnvVarsKeysAreRefusedByName"
+    ]
+  },
   "an-envvars-key-dbt-would-never-see-is-refused": {
     "section": "Orchestration",
     "claim": "An ENV_VARS key dbt would never see is refused",
