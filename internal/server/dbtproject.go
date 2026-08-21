@@ -186,7 +186,7 @@ func (s *Server) execDbtProject(sess session, name, rest string) (string, error)
 	if err != nil {
 		return "", err
 	}
-	defer os.RemoveAll(work)
+	defer func() { _ = os.RemoveAll(work) }()
 	proj := filepath.Join(work, "project")
 	if err := copyTree(src, proj); err != nil {
 		return "", err
