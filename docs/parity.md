@@ -70,6 +70,7 @@ the same run.
 | A prefix loads every file under it | A stage reference matches every file whose path STARTS WITH it, which is Snowflake's rule and covers a directory, a partial name and an exact file with one behaviour. It was REFUSED by name until a consumer needed it: a task body is a single statement, so one COPY INTO per part file turns an eight-table bronze into thirty-odd chained tasks -- the emulator deciding the shape of a pipeline. The `.gz` that AUTO_COMPRESS leaves needs no special case, since the uncompressed name is a prefix of the compressed one. | 🟢 |
 | The prefix really loaded both parts |  | 🟢 |
 | PUT | The driver uploads the bytes itself, as it does against a real account: the answer names LOCAL_FS and the stage directory, and the connector's file transfer agent does the copying. AUTO_COMPRESS defaults to TRUE, so the stage holds `<name>.gz`. Set SNOWFLAKE_STAGE_CLIENT_DIR when the client sees the stage at a different path than the server does. | 🟢 |
+| GET | The counterpart to PUT, and the only way a file comes back OUT of a stage. EXECUTE DBT PROJECT leaves dbt's run_results.json there, which is how a pipeline learns WHICH tests ran rather than which exist -- so without GET a consumer is left publishing contract names nothing evaluated. e2e-put asserts the round trip through the driver's own file transfer agent, bytes included. | 🟢 |
 | REMOVE | duckdb: Parser Error: syntax error at or near "REMOVE" | 🔴 |
 | INFER_SCHEMA | TYPE reports the names an ACCOUNT reports -- NUMBER(38,0), TIMESTAMP_NTZ -- so a CREATE TABLE built from it is portable. DESCRIBE TABLE still reports the ENGINE's names (DECIMAL(38,0)), and deliberately: the family's `money_is_never_stored_as_float` contract accepts only `decimal` and `numeric` prefixes, so renaming what DESCRIBE reports would fail 52 gold contracts. The two statements answer in different vocabularies and that is recorded rather than reconciled. | 🟢 |
 | INFER_SCHEMA composes (WHERE over the result) |  | 🟢 |
@@ -120,6 +121,7 @@ the same run.
 | An ENV_VARS key dbt would never see is refused | Snowflake requires ENV_VARS keys UPPERCASE and DBT_-prefixed. Accepting one dbt will never read is the silent kind of wrong: env_var() falls to its default and the models read the wrong thing with nothing failing. | 🟢 |
 | SHOW DBT PROJECTS |  | 🟢 |
 | EXECUTE DBT PROJECT | dbt runs in THIS image, on argv, the same way duckdb does -- no second service and no network hop between the statement and what executes it. The profile is generated under the name the PROJECT declares, so a project runs here without being edited to say an emulator-specific one. | 🟢 |
+| dbt's run_results is in the stage, at the path it named | GET resolves the file, so this fails if the archive was not written -- the path is the one OUTPUT_ARCHIVE_URL reports, and the one a failing run names in its error. That is the point of leaving artefacts in the stage rather than returning them: a failed run has no result set to carry anything, and its evidence is what a caller most needs. | 🟢 |
 | dbt really built the models | Read back from the model dbt was asked to build, so this cannot pass on a run that reported success and built nothing. | 🟢 |
 | ENV_VARS reached the dbt process | Read back from a column the model fills with env_var(), so it cannot pass on a project that built while the value never arrived. | 🟢 |
 | A dbt failure fails the QUERY | `build` is not one of run, test or deps, so it is refused by name. Snowflake made dbt errors query failures in October 2025 precisely so tasks could handle them: a failed run that returned Success = FALSE from a SUCCESSFUL statement let a task graph run its downstream nodes anyway. | 🟢 |
@@ -141,4 +143,4 @@ the same run.
 |---|---|---|
 | CREATE / SHOW / SUSPEND |  | 🟢 |
 
-_80 of 87 answered._
+_82 of 89 answered._

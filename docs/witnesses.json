@@ -241,6 +241,14 @@
       "go:TestPutAnswersTheContractBothDriversRead"
     ]
   },
+  "get": {
+    "section": "Stages",
+    "claim": "GET",
+    "witnesses": [
+      "ci:parity",
+      "ci:e2e-put"
+    ]
+  },
   "inferschema": {
     "section": "Stages",
     "claim": "INFER_SCHEMA",
@@ -470,6 +478,13 @@
   "execute-dbt-project": {
     "section": "Orchestration",
     "claim": "EXECUTE DBT PROJECT",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "dbt-s-runresults-is-in-the-stage-at-the-path-it-named": {
+    "section": "Orchestration",
+    "claim": "dbt's run_results is in the stage, at the path it named",
     "witnesses": [
       "ci:parity"
     ]

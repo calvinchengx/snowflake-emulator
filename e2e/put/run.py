@@ -128,7 +128,32 @@ def main() -> int:
         if int(rows) != 3 or float(total) != 60.75:
             raise SystemExit(f"COPY INTO landed {rows} rows summing {total}, want 3 and 60.75")
 
-        print(f"e2e-put: driver uploaded {uploaded!r}")
+        # AND BACK OUT AGAIN, through the driver's own file transfer agent.
+        #
+        # GET is not decoration: EXECUTE DBT PROJECT leaves dbt's
+        # `run_results.json` in the stage, and that file is how a pipeline
+        # learns WHICH tests ran rather than which exist. Without a way to read
+        # a stage file back, a consumer is left publishing contract names
+        # nothing evaluated -- so this asserts the round trip, not the response.
+        back = data_dir / "back"
+        back.mkdir()
+        cur.execute(f"GET @~/orders.csv file://{back}")
+        fetched = cur.fetchall()
+        if not fetched or fetched[0][2] != "DOWNLOADED":
+            raise SystemExit(f"GET did not download: {fetched}")
+        landed_back = sorted(p.name for p in back.iterdir())
+        if landed_back != ["orders.csv.gz"]:
+            raise SystemExit(f"GET landed {landed_back}, want ['orders.csv.gz']")
+        # THE BYTES, not the filename. A GET that creates an empty file with the
+        # right name reports DOWNLOADED just as loudly.
+        with gzip.open(back / "orders.csv.gz", "rt") as fh:
+            round_tripped = fh.read()
+        if round_tripped != (src / "orders.csv").read_text(encoding="utf-8"):
+            raise SystemExit(
+                f"GET returned different bytes than PUT sent: {round_tripped!r}"
+            )
+
+        print(f"e2e-put: driver uploaded {uploaded!r}, and GET returned the same bytes")
         print(f"e2e-put: stage holds {landed}; COPY INTO landed {rows} rows summing {total}")
         return 0
     finally:
