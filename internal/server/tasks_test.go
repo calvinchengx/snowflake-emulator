@@ -62,6 +62,42 @@ func TestATaskWithNoOptionClauseAtAll(t *testing.T) {
 		}
 	}
 
+	// A BODY THAT CONTAINS ` AS `, which every case above carefully avoided.
+	//
+	// The cases above all use `SELECT 1`. That body has no `AS` in it, so it
+	// passed against a regex that mis-split on one -- this test named the trap
+	// ("a probe that picks a comfortable spelling measures the spelling") and
+	// then picked a comfortable BODY, which is the same mistake one level in.
+	//
+	// Measured before the fix: `CREATE TASK t AS CREATE OR REPLACE TABLE x AS
+	// SELECT 1 AS n` stored `SELECT 1 AS n`, ran it, and reported SUCCEEDED
+	// with no table x. A CTAS is what a dbt model compiles to, so this is the
+	// body the Tasks consumer is made of.
+	for _, tc := range []struct{ sql, body string }{
+		{"CREATE TASK t AS CREATE OR REPLACE TABLE x AS SELECT 1 AS n",
+			"CREATE OR REPLACE TABLE x AS SELECT 1 AS n"},
+		{"CREATE TASK t AS SELECT 1 AS n",
+			"SELECT 1 AS n"},
+		{"CREATE OR REPLACE TASK t AS CREATE TABLE y AS SELECT a AS b FROM z",
+			"CREATE TABLE y AS SELECT a AS b FROM z"},
+		// The option clause must still win when it is present, even though the
+		// body also carries an AS.
+		{"CREATE TASK t WAREHOUSE = wh AS CREATE TABLE x AS SELECT 1 AS n",
+			"CREATE TABLE x AS SELECT 1 AS n"},
+		{"CREATE TASK t AFTER a AS CREATE TABLE x AS SELECT 1 AS n",
+			"CREATE TABLE x AS SELECT 1 AS n"},
+	} {
+		m := reCreateTask.FindStringSubmatch(tc.sql)
+		if m == nil {
+			t.Fatalf("%q did not parse as a task", tc.sql)
+		}
+		if got := strings.TrimSpace(m[3]); got != tc.body {
+			t.Fatalf("%q\n  stored body %q\n  want        %q\n"+
+				"a task that runs a body it was not given, and succeeds, says nothing anywhere",
+				tc.sql, got, tc.body)
+		}
+	}
+
 	// The option clause still parses when it IS there -- relaxing the regex must
 	// not make `WAREHOUSE = wh` part of the body.
 	m := reCreateTask.FindStringSubmatch("CREATE TASK t WAREHOUSE = wh AS SELECT 1")
