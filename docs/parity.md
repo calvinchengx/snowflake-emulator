@@ -109,6 +109,12 @@ the same run.
 | A manual task with a CTAS body |  | 🟢 |
 | EXECUTE TASK runs the CTAS |  | 🟢 |
 | The CTAS body actually ran | Selected back from the table the body creates, so this cannot pass on a task that succeeded while running a different statement. Every other probe here is judged on whether the STATEMENT succeeded, which is one level away from whether anything happened. | 🟢 |
+| A task body loads from a stage |  | 🟢 |
+| EXECUTE TASK runs the COPY INTO |  | 🟢 |
+| The task's COPY INTO actually loaded | Counted from the table the task loaded into. The body used to go straight to duckdb, which answers COPY INTO with a syntax error at INTO -- while the identical statement outside a task loaded fine. | 🟢 |
+| A task body reads a stream |  | 🟢 |
+| EXECUTE TASK runs the stream read |  | 🟢 |
+| The task's stream read actually inserted | Counted from the table the task inserted into. The body used to go straight to duckdb, which has no table for a stream name at all. | 🟢 |
 | CREATE STREAM | APPEND-ONLY, and it proves it rather than assuming it. DuckDB keeps no change log, so the stream remembers the first rowid it has not shown and a checksum of the rows it has. If a row before that point is updated or deleted the stream REFUSES TO BE READ, naming what happened -- Snowflake would report those as DELETE and INSERT rows, and answering without them would silently drop the change. METADATA$ACTION is always INSERT for the same reason. | 🟢 |
 | Reading a stream |  | 🟢 |
 | SYSTEM$STREAM_HAS_DATA |  | 🟢 |
@@ -122,4 +128,4 @@ the same run.
 |---|---|---|
 | CREATE / SHOW / SUSPEND |  | 🟢 |
 
-_61 of 68 answered._
+_67 of 74 answered._
