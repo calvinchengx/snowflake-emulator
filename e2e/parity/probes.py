@@ -148,6 +148,20 @@ PROBES = [
 # Snowflake in a way a consumer can see. Recorded here so a green probe is not
 # read as full fidelity.
 CAVEATS = {
+    "A manual task (no SCHEDULE, no AFTER)": (
+        "The body is the whole statement after the task's own AS, including a "
+        "body carrying its own AS -- a CREATE TABLE ... AS SELECT, which is "
+        "what a dbt model compiles to. It was not: the optional properties "
+        "group was greedy, so a task with no WAREHOUSE swallowed the body's "
+        "first AS, stored a truncated statement, ran that, and reported "
+        "SUCCEEDED."
+    ),
+    "The CTAS body actually ran": (
+        "Selected back from the table the body creates, so this cannot pass on "
+        "a task that succeeded while running a different statement. Every other "
+        "probe here is judged on whether the STATEMENT succeeded, which is one "
+        "level away from whether anything happened."
+    ),
     "INFER_SCHEMA": (
         "TYPE reports the names an ACCOUNT reports -- NUMBER(38,0), "
         "TIMESTAMP_NTZ -- so a CREATE TABLE built from it is portable. "
@@ -220,6 +234,8 @@ CAVEATS = {
 # witnessed by the parity job, which is a real witness: it runs every
 # statement against the built image and fails if the answer changes.
 WITNESSES = {
+    "A manual task (no SCHEDULE, no AFTER)": ["ci:parity", "go:TestATaskWithNoOptionClauseAtAll"],
+    "The CTAS body actually ran": ["ci:parity", "go:TestATaskWithNoOptionClauseAtAll"],
     "Seeded PAT": ["ci:e2e-sdk", "go:TestLoginRejectsDevAndEmpty"],
     "SELECT, CTE, window": ["ci:e2e-sql"],
     "COPY INTO from an internal stage": ["ci:e2e-sql"],

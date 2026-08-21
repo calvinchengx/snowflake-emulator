@@ -104,11 +104,11 @@ the same run.
 | EXECUTE TASK | Runs the named task and everything downstream of it, as Snowflake does. A resumed root task also fires on its own interval. Its runs, and the runs of everything downstream, are readable through TASK_HISTORY(). | 🟢 |
 | DROP TASK |  | 🟢 |
 | USING CRON is refused |  | 🟢 |
-| A manual task (no SCHEDULE, no AFTER) | The body is the whole statement after the task's own `AS`, including a body that contains its own `AS` -- a `CREATE TABLE ... AS SELECT`, which is what a dbt model compiles to. | 🟢 |
+| A manual task (no SCHEDULE, no AFTER) | The body is the whole statement after the task's own AS, including a body carrying its own AS -- a CREATE TABLE ... AS SELECT, which is what a dbt model compiles to. It was not: the optional properties group was greedy, so a task with no WAREHOUSE swallowed the body's first AS, stored a truncated statement, ran that, and reported SUCCEEDED. | 🟢 |
+| EXECUTE TASK on a manual task |  | 🟢 |
 | A manual task with a CTAS body |  | 🟢 |
 | EXECUTE TASK runs the CTAS |  | 🟢 |
-| The CTAS body actually ran | Selected back from the table the body creates, so this cannot pass on a task that succeeded while running a different statement. | 🟢 |
-| EXECUTE TASK on a manual task |  | 🟢 |
+| The CTAS body actually ran | Selected back from the table the body creates, so this cannot pass on a task that succeeded while running a different statement. Every other probe here is judged on whether the STATEMENT succeeded, which is one level away from whether anything happened. | 🟢 |
 | CREATE STREAM | APPEND-ONLY, and it proves it rather than assuming it. DuckDB keeps no change log, so the stream remembers the first rowid it has not shown and a checksum of the rows it has. If a row before that point is updated or deleted the stream REFUSES TO BE READ, naming what happened -- Snowflake would report those as DELETE and INSERT rows, and answering without them would silently drop the change. METADATA$ACTION is always INSERT for the same reason. | 🟢 |
 | Reading a stream |  | 🟢 |
 | SYSTEM$STREAM_HAS_DATA |  | 🟢 |
@@ -122,4 +122,4 @@ the same run.
 |---|---|---|
 | CREATE / SHOW / SUSPEND |  | 🟢 |
 
-_58 of 65 answered._
+_61 of 68 answered._

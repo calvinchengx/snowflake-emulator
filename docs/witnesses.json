@@ -371,6 +371,28 @@
       "ci:parity"
     ]
   },
+  "a-manual-task-with-a-ctas-body": {
+    "section": "Orchestration",
+    "claim": "A manual task with a CTAS body",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "execute-task-runs-the-ctas": {
+    "section": "Orchestration",
+    "claim": "EXECUTE TASK runs the CTAS",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "the-ctas-body-actually-ran": {
+    "section": "Orchestration",
+    "claim": "The CTAS body actually ran",
+    "witnesses": [
+      "ci:parity",
+      "go:TestATaskWithNoOptionClauseAtAll"
+    ]
+  },
   "create-stream": {
     "section": "Orchestration",
     "claim": "CREATE STREAM",
@@ -411,27 +433,6 @@
     "claim": "CREATE / SHOW / SUSPEND",
     "witnesses": [
       "ci:e2e-sql"
-    ]
-  },
-  "a-manual-task-with-a-ctas-body": {
-    "section": "Orchestration",
-    "claim": "A manual task with a CTAS body",
-    "witnesses": [
-      "ci:parity"
-    ]
-  },
-  "execute-task-runs-the-ctas": {
-    "section": "Orchestration",
-    "claim": "EXECUTE TASK runs the CTAS",
-    "witnesses": [
-      "ci:parity"
-    ]
-  },
-  "the-ctas-body-actually-ran": {
-    "section": "Orchestration",
-    "claim": "The CTAS body actually ran",
-    "witnesses": [
-      "ci:parity"
     ]
   }
 }
