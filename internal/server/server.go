@@ -33,6 +33,8 @@ type Server struct {
 	formats map[string]fileFormat
 	tasks   map[string]*task
 	streams map[string]*stream
+	// dbt project objects, by name. See dbtproject.go.
+	dbtProjects map[string]dbtProject
 	// runs is what TASK_HISTORY() reads. A task that ran and left no trace is
 	// a task an orchestrator cannot wait on, which is why EXECUTE TASK alone
 	// was not enough to drive a pipeline from here.
@@ -403,6 +405,10 @@ func (s *Server) runSQL(w http.ResponseWriter, tok string, sess session, sqlText
 		return
 	}
 
+	if s.handleDbtProjectSQL(w, sess, sqlText) {
+		return
+	}
+
 	if s.handleStreamSQL(w, sqlText) {
 		return
 	}
@@ -528,7 +534,10 @@ func (s *Server) handleCatalogSQL(w http.ResponseWriter, sqlText string) bool {
 			writeQueryOK(w, []string{"database_name", "schema_name", "name", "kind", "is_dynamic", "is_iceberg"}, nil, "duckdb")
 			return true
 		}
-		res, err := engine.Exec(s.Cfg.DuckDB, "SHOW TABLES")
+		// information_schema, not SHOW TABLES, because the TYPE matters and
+		// SHOW TABLES does not carry one. See the `kind` column below.
+		res, err := engine.Exec(s.Cfg.DuckDB,
+			"SELECT table_name AS name, table_type AS kind FROM information_schema.tables")
 		if err != nil {
 			writeFail(w, http.StatusOK, "002001", err.Error())
 			return true
@@ -537,6 +546,7 @@ func (s *Server) handleCatalogSQL(w http.ResponseWriter, sqlText string) bool {
 		// column order that was randomised per request; it is stable now, and
 		// SHOW TABLES answers one column called `name` either way.
 		at := columnAt(res.Columns, "name")
+		kindAt := columnAt(res.Columns, "kind")
 		rows := make([][]string, 0, len(res.Rows))
 		for _, r := range res.Rows {
 			name := cell(r, at)
@@ -555,7 +565,21 @@ func (s *Server) handleCatalogSQL(w http.ResponseWriter, sqlText string) bool {
 			// table failed to compile. Reporting the real name is safe because
 			// DuckDB resolves identifiers case-insensitively even when quoted,
 			// checked rather than assumed.
-			rows = append(rows, []string{"TEST_DB", "PUBLIC", strings.ToUpper(name), "TABLE", "N", "N"})
+			// THE REAL TYPE, and it was hard-coded "TABLE" for every object.
+			//
+			// dbt-snowflake reads `kind` to decide what an existing relation
+			// IS. Told a view was a table, it concluded the materialization had
+			// changed and issued `drop table if exists "..." cascade` -- which
+			// duckdb refuses: `Existing object P_DBT_ONE is of type View,
+			// trying to drop type Table`. So the FIRST run of a view model
+			// passed and every run after it failed, which is the shape a
+			// scheduled task graph hits on its second day and a one-shot demo
+			// never does.
+			kind := "TABLE"
+			if strings.EqualFold(cell(r, kindAt), "VIEW") {
+				kind = "VIEW"
+			}
+			rows = append(rows, []string{"TEST_DB", "PUBLIC", strings.ToUpper(name), kind, "N", "N"})
 		}
 		writeQueryOK(w, []string{"database_name", "schema_name", "name", "kind", "is_dynamic", "is_iceberg"}, rows, "duckdb")
 		return true

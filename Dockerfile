@@ -16,6 +16,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
     && unzip -o /tmp/duckdb.zip -d /usr/local/bin \
     && chmod +x /usr/local/bin/duckdb \
     && rm -rf /var/lib/apt/lists /tmp/duckdb.zip
+# dbt, server-side, because EXECUTE DBT PROJECT is a Snowflake statement:
+# `dbt run` happens INSIDE the account, not on a client. The emulator runs it
+# the same way it runs duckdb -- a CLI on argv, in this image -- which is the
+# execution model this architecture already has, rather than a second service.
+#
+# FROM THIS REPOSITORY'S OWN LOCK, not a loose pin. `uv sync --frozen` with the
+# `dbt` group installs exactly the dbt that e2e/dbt tests with, so the dbt an
+# EXECUTE DBT PROJECT runs is the dbt CI measured. A bare `pip install
+# dbt-snowflake` would resolve independently and could differ -- the lock names
+# dbt-core 2.0.0b1, a prerelease pip would not choose on its own.
+COPY --from=ghcr.io/astral-sh/uv:0.12.3 /uv /usr/local/bin/uv
+COPY pyproject.toml uv.lock ./
+ENV UV_PYTHON_INSTALL_DIR=/opt/python UV_PROJECT_ENVIRONMENT=/opt/dbt
+RUN uv sync --frozen --no-dev --group dbt \
+    && rm -rf /root/.cache /tmp/* pyproject.toml uv.lock
+ENV PATH="/opt/dbt/bin:$PATH"
+
 COPY --from=build /snowflake-emulator /usr/local/bin/snowflake-emulator
 RUN mkdir /data /stages && chown 65532:65532 /data /stages
 USER 65532:65532

@@ -166,6 +166,25 @@ PROBES = [
     ("Orchestration", "A task body reads a stream",
      "CREATE TASK p_task_stream AS INSERT INTO p_stream_out SELECT id FROM p_stream2"),
     ("Orchestration", "EXECUTE TASK runs the stream read", "EXECUTE TASK p_task_stream"),
+    # dbt PROJECTS ON SNOWFLAKE. dbt runs INSIDE the account here, which is what
+    # lets a task graph chain run and test with AFTER -- Snowflake's own
+    # orchestration example. See dbtproject.go for why a failing dbt run fails
+    # the QUERY rather than returning Success = FALSE.
+    ("Orchestration", "CREATE DBT PROJECT", "CREATE DBT PROJECT p_proj FROM '@~/parity_dbt'"),
+    ("Orchestration", "SHOW DBT PROJECTS", "SHOW DBT PROJECTS"),
+    ("Orchestration", "EXECUTE DBT PROJECT", "EXECUTE DBT PROJECT p_proj ARGS='run'"),
+    ("Orchestration", "dbt really built the models",
+     "SELECT CASE WHEN count(*) = 1 THEN 0 ELSE "
+     "CAST('dbt reported success and built nothing' AS INT) END AS ok FROM p_dbt_two"),
+    ("Orchestration", "A dbt failure fails the QUERY",
+     "EXECUTE DBT PROJECT p_proj ARGS='build'", "must_fail"),
+    ("Orchestration", "A dbt task with no warehouse is refused",
+     "CREATE TASK p_dbt_nowh AS EXECUTE DBT PROJECT p_proj ARGS='run'", "must_fail"),
+    ("Orchestration", "A task body runs EXECUTE DBT PROJECT",
+     "CREATE TASK p_dbt_task WAREHOUSE = parity_wh AS EXECUTE DBT PROJECT p_proj ARGS='run'"),
+    ("Orchestration", "EXECUTE TASK runs the dbt project", "EXECUTE TASK p_dbt_task"),
+    ("Orchestration", "DROP DBT PROJECT", "DROP DBT PROJECT p_proj"),
+
     ("Orchestration", "The task's stream read actually inserted",
      "SELECT CASE WHEN count(*) = 2 THEN 0 ELSE "
      "CAST('the task inserted the wrong number of rows' AS INT) END AS ok FROM p_stream_out"),
@@ -183,6 +202,23 @@ PROBES = [
 # Snowflake in a way a consumer can see. Recorded here so a green probe is not
 # read as full fidelity.
 CAVEATS = {
+    "EXECUTE DBT PROJECT": (
+        "dbt runs in THIS image, on argv, the same way duckdb does -- no second "
+        "service and no network hop between the statement and what executes it. "
+        "The profile is generated under the name the PROJECT declares, so a "
+        "project runs here without being edited to say an emulator-specific one."
+    ),
+    "A dbt failure fails the QUERY": (
+        "`build` is not one of run, test or deps, so it is refused by name. "
+        "Snowflake made dbt errors query failures in October 2025 precisely so "
+        "tasks could handle them: a failed run that returned Success = FALSE "
+        "from a SUCCESSFUL statement let a task graph run its downstream nodes "
+        "anyway."
+    ),
+    "dbt really built the models": (
+        "Read back from the model dbt was asked to build, so this cannot pass "
+        "on a run that reported success and built nothing."
+    ),
     "The task's COPY INTO actually loaded": (
         "Counted from the table the task loaded into. The body used to go "
         "straight to duckdb, which answers COPY INTO with a syntax error at "

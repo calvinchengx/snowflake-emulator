@@ -114,6 +114,15 @@ the same run.
 | The task's COPY INTO actually loaded | Counted from the table the task loaded into. The body used to go straight to duckdb, which answers COPY INTO with a syntax error at INTO -- while the identical statement outside a task loaded fine. | 🟢 |
 | A task body reads a stream |  | 🟢 |
 | EXECUTE TASK runs the stream read |  | 🟢 |
+| CREATE DBT PROJECT |  | 🟢 |
+| SHOW DBT PROJECTS |  | 🟢 |
+| EXECUTE DBT PROJECT | dbt runs in THIS image, on argv, the same way duckdb does -- no second service and no network hop between the statement and what executes it. The profile is generated under the name the PROJECT declares, so a project runs here without being edited to say an emulator-specific one. | 🟢 |
+| dbt really built the models | Read back from the model dbt was asked to build, so this cannot pass on a run that reported success and built nothing. | 🟢 |
+| A dbt failure fails the QUERY | `build` is not one of run, test or deps, so it is refused by name. Snowflake made dbt errors query failures in October 2025 precisely so tasks could handle them: a failed run that returned Success = FALSE from a SUCCESSFUL statement let a task graph run its downstream nodes anyway. | 🟢 |
+| A dbt task with no warehouse is refused |  | 🟢 |
+| A task body runs EXECUTE DBT PROJECT |  | 🟢 |
+| EXECUTE TASK runs the dbt project |  | 🟢 |
+| DROP DBT PROJECT |  | 🟢 |
 | The task's stream read actually inserted | Counted from the table the task inserted into. The body used to go straight to duckdb, which has no table for a stream name at all. | 🟢 |
 | CREATE STREAM | APPEND-ONLY, and it proves it rather than assuming it. DuckDB keeps no change log, so the stream remembers the first rowid it has not shown and a checksum of the rows it has. If a row before that point is updated or deleted the stream REFUSES TO BE READ, naming what happened -- Snowflake would report those as DELETE and INSERT rows, and answering without them would silently drop the change. METADATA$ACTION is always INSERT for the same reason. | 🟢 |
 | Reading a stream |  | 🟢 |
@@ -128,4 +137,4 @@ the same run.
 |---|---|---|
 | CREATE / SHOW / SUSPEND |  | 🟢 |
 
-_67 of 74 answered._
+_76 of 83 answered._

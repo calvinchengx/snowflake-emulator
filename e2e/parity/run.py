@@ -87,6 +87,32 @@ def measure() -> list[tuple[str, str, bool, str]]:
     for part in ("part_0.csv", "part_1.csv"):
         (feed / part).write_text("n\n1\n2\n", encoding="utf-8")
     feed.chmod(0o777)
+
+    # A dbt PROJECT in the stage, because EXECUTE DBT PROJECT reads one from
+    # there. Two models and a ref, so `run` has something to build and the
+    # probe that reads the result back is reading dbt's work rather than a
+    # constant. The profile name is deliberately NOT one this emulator could
+    # special-case: dbt resolves `profile:` from dbt_project.yml, and a
+    # generated profile filed under any other key would send dbt looking for
+    # one that was never written -- the defect databricks-emulator#68 was.
+    proj = stage / "parity_dbt"
+    (proj / "models").mkdir(parents=True)
+    (proj / "dbt_project.yml").write_text(
+        "name: parity_dbt\n"
+        "version: '1.0.0'\n"
+        "config-version: 2\n"
+        "profile: a_name_the_emulator_does_not_know\n"
+        "model-paths: ['models']\n"
+        "flags:\n"
+        "  send_anonymous_usage_stats: false\n",
+        encoding="utf-8",
+    )
+    (proj / "models" / "p_dbt_one.sql").write_text("select 1 as n\n", encoding="utf-8")
+    (proj / "models" / "p_dbt_two.sql").write_text(
+        "select n from {{ ref('p_dbt_one') }}\n", encoding="utf-8")
+    for child in proj.rglob("*"):
+        child.chmod(0o777)
+    proj.chmod(0o777)
     stage.chmod(0o777)
 
     sh("docker", "build", "-t", IMAGE, ".", cwd=ROOT)
