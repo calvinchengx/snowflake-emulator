@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -168,12 +169,14 @@ func TestAnExactNameStillWinsAndAMissingFileStillFails(t *testing.T) {
 	}
 }
 
-func TestAPrefixIsRefusedByNameRatherThanByDuckdb(t *testing.T) {
-	// Measured before this existed: `COPY INTO t FROM @~/feed/` came back as
-	// `duckdb: IO Error: No files found that match the pattern "/stages/feed"`.
-	// That is a refusal, so nothing was silent, but it names a path inside a
-	// container and a duckdb concept. A reader has to deduce that the FEATURE
-	// is missing rather than the file.
+// A PREFIX RESOLVES, in the three forms Snowflake treats identically.
+//
+// This used to assert the opposite -- that a prefix is REFUSED by name -- and
+// the refusal was honest while it stood. What made it worth removing is what a
+// prefix is FOR: a task body is a single statement, so one COPY INTO per part
+// file turned an eight-table bronze into thirty-odd chained tasks. The shape of
+// a consumer's pipeline was being decided by this emulator.
+func TestAPrefixResolvesToEveryFileUnderIt(t *testing.T) {
 	dir := t.TempDir()
 	feed := filepath.Join(dir, "feed")
 	if err := os.MkdirAll(feed, 0o755); err != nil {
@@ -184,34 +187,54 @@ func TestAPrefixIsRefusedByNameRatherThanByDuckdb(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for _, tc := range []struct{ path, why string }{
-		{"feed/", "a trailing slash"},
-		{"feed", "a directory"},
-		{"feed/*.csv", "a glob"},
-		{"", "the whole stage"},
+	if err := os.WriteFile(filepath.Join(dir, "other.csv"), []byte("n\n9\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		path string
+		want int
+		why  string
+	}{
+		{"feed/", 2, "a trailing slash"},
+		{"feed", 2, "a directory"},
+		{"feed/part_", 2, "a partial name"},
+		{"feed/part_0.csv", 1, "an exact file"},
+		// The WHOLE stage, which is a prefix of everything -- three files here.
+		{"", 3, "the empty prefix"},
 	} {
-		_, err := stageFile(dir, tc.path)
-		if err == nil {
-			t.Errorf("%q was resolved; a prefix must be refused", tc.path)
-			continue
+		got, err := stageFiles(dir, tc.path)
+		if err != nil {
+			t.Fatalf("%s (%s): %v", tc.path, tc.why, err)
 		}
-		if !strings.Contains(err.Error(), "COPY INTO from a prefix is not implemented") {
-			t.Errorf("%q refused as %q, which does not name the missing feature", tc.path, err)
+		if len(got) != tc.want {
+			t.Errorf("%s (%s) matched %d files, want %d: %v", tc.path, tc.why, len(got), tc.want, got)
 		}
+	}
+
+	// SORTED, so two identical runs load in the same order. Unordered loads
+	// that differ between runs, with nothing saying why, is the failure this
+	// family spends its time hunting.
+	got, _ := stageFiles(dir, "feed/")
+	if !sort.StringsAreSorted(got) {
+		t.Errorf("prefix matches are not sorted: %v", got)
+	}
+
+	// A prefix matching nothing still fails, and says so.
+	if _, err := stageFiles(dir, "no_such_prefix"); err == nil {
+		t.Error("a prefix matching no files was accepted")
 	}
 }
 
-func TestTheRefusalSaysWhatToDoInstead(t *testing.T) {
-	// A refusal that names the gap and not the remedy sends the reader to the
-	// source. Both halves are asserted because both were written on purpose.
-	_, err := stageFile(t.TempDir(), "feed/")
-	if err == nil {
-		t.Fatal("a prefix was resolved")
+// The .gz that AUTO_COMPRESS leaves needs no special case: the uncompressed
+// name is a PREFIX of the compressed one.
+func TestTheUncompressedNamePrefixesTheGz(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "orders.csv.gz"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	for _, want := range []string{"name one file", "Snowflake loads every file under a prefix"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("refusal %q is missing %q", err, want)
-		}
+	got, err := stageFiles(dir, "orders.csv")
+	if err != nil || len(got) != 1 || !strings.HasSuffix(got[0], ".gz") {
+		t.Fatalf("orders.csv did not find orders.csv.gz: %v %v", got, err)
 	}
 }
 

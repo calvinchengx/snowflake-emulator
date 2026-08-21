@@ -217,12 +217,20 @@
       "ci:parity"
     ]
   },
-  "a-prefix-is-refused": {
+  "a-prefix-loads-every-file-under-it": {
     "section": "Stages",
-    "claim": "A prefix is refused",
+    "claim": "A prefix loads every file under it",
     "witnesses": [
       "ci:parity",
-      "go:TestAPrefixIsRefusedByNameRatherThanByDuckdb"
+      "go:TestAPrefixResolvesToEveryFileUnderIt"
+    ]
+  },
+  "the-prefix-really-loaded-both-parts": {
+    "section": "Stages",
+    "claim": "The prefix really loaded both parts",
+    "witnesses": [
+      "ci:parity",
+      "go:TestAPrefixResolvesToEveryFileUnderIt"
     ]
   },
   "put": {

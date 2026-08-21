@@ -14,6 +14,7 @@ SETUP = [
     "CREATE OR REPLACE TABLE p_t (id INT, m DECIMAL(19,4), d DATE, arr VARIANT)",
     "INSERT INTO p_t VALUES (1, 1.5, DATE '2026-01-01', '[{\"sku\":\"A\"}]')",
     "CREATE OR REPLACE TABLE p_json (id INT, customer VARIANT)",
+    "CREATE OR REPLACE TABLE p_prefix (n INT)",
     # For the task-body probes below. The stream is created BEFORE the rows are
     # inserted, so it genuinely owes them -- a stream over an unchanged table
     # would let the task probe pass by inserting nothing.
@@ -73,9 +74,14 @@ PROBES = [
     ("Stages", "External stages are refused", "CREATE STAGE p_ext URL = 's3://b/p'", "must_fail"),
     ("Stages", "An unsupported format option is refused",
      "COPY INTO p_nums FROM @~/parity.csv FILE_FORMAT = (TYPE = CSV, RECORD_DELIMITER = '|')", "must_fail"),
-    ("Stages", "A prefix is refused",
-     "COPY INTO p_nums FROM '@~/parity_feed/' FILE_FORMAT = (TYPE = CSV, SKIP_HEADER = 1)",
-     "must_fail"),
+    # parity_feed holds two parts of two rows each. Loading the PREFIX must
+    # take both, so the count is what the probe turns on -- naming one file
+    # would load two rows and pass a probe that only checked for success.
+    ("Stages", "A prefix loads every file under it",
+     "COPY INTO p_prefix FROM '@~/parity_feed/' FILE_FORMAT = (TYPE = CSV, SKIP_HEADER = 1)"),
+    ("Stages", "The prefix really loaded both parts",
+     "SELECT CASE WHEN count(*) = 4 THEN 0 ELSE "
+     "CAST('the prefix loaded the wrong number of rows' AS INT) END AS ok FROM p_prefix"),
     ("Stages", "PUT", "PUT file:///tmp/parity.csv @~"),
     ("Stages", "REMOVE", "REMOVE @~/parity.csv"),
     # FILE_FORMAT IS REQUIRED, and the old probe here omitted it -- so the
@@ -286,13 +292,15 @@ CAVEATS = {
         "wrong type for a DATE argument. A TIMESTAMP given to the day form is "
         "an error here where Snowflake would answer."
     ),
-    "A prefix is refused": (
-        "Real Snowflake resolves a stage reference by prefix and loads EVERY "
-        "file under it, which is the ordinary way to load a paged feed. This "
-        "resolves one name and the `.gz` AUTO_COMPRESS leaves, so a prefix is "
-        "refused BY NAME. It used to come back as duckdb's own words about a "
-        "path inside the container, which left the reader to work out that the "
-        "feature was missing rather than the file."
+    "A prefix loads every file under it": (
+        "A stage reference matches every file whose path STARTS WITH it, which "
+        "is Snowflake's rule and covers a directory, a partial name and an "
+        "exact file with one behaviour. It was REFUSED by name until a "
+        "consumer needed it: a task body is a single statement, so one COPY "
+        "INTO per part file turns an eight-table bronze into thirty-odd chained "
+        "tasks -- the emulator deciding the shape of a pipeline. The `.gz` that "
+        "AUTO_COMPRESS leaves needs no special case, since the uncompressed "
+        "name is a prefix of the compressed one."
     ),
     "PUT": (
         "The driver uploads the bytes itself, as it does against a real "
@@ -340,7 +348,8 @@ WITNESSES = {
     # and only the Go test reads the message, so the row cites both. A witness
     # that does not check the thing the row claims is the assertion one level
     # off from the fact.
-    "A prefix is refused": ["ci:parity", "go:TestAPrefixIsRefusedByNameRatherThanByDuckdb"],
+    "A prefix loads every file under it": ["ci:parity", "go:TestAPrefixResolvesToEveryFileUnderIt"],
+    "The prefix really loaded both parts": ["ci:parity", "go:TestAPrefixResolvesToEveryFileUnderIt"],
     "PUT": ["ci:e2e-put", "go:TestPutAnswersTheContractBothDriversRead"],
     # ci:parity proves the function ANSWERS. What a driver needs is that it
     # answers CORRECTLY about a failure, and only the e2e runs a graph that

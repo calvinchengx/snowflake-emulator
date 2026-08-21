@@ -138,21 +138,42 @@ func splitStageRef(location string) (stage, prefix string, err error) {
 // stageFiles lists what the prefix names, newest-agnostic and sorted so the
 // generated SQL is stable -- an unstable file order would make ORDER_ID and
 // FILENAMES differ between two identical calls.
+// stageFiles resolves a stage reference to the files it names.
+//
+// A STAGE REFERENCE IS A PREFIX, which is what Snowflake does: it matches every
+// file whose path STARTS WITH the reference. That covers all three forms with
+// one rule -- an exact file (`orders.csv`), a directory (`feed/`) and a partial
+// name (`feed/part_`) -- and Snowflake draws no distinction between them
+// either, so neither does this.
+//
+// COPY INTO used to REFUSE a prefix while INFER_SCHEMA resolved one, through
+// this very function in its older directory-only form. Two statements
+// disagreeing about what a stage reference means is worse than either answer:
+// a consumer had to issue one COPY INTO per part file, and since a task body is
+// a single statement, loading eight tables through Tasks meant thirty-odd
+// chained tasks instead of eight -- a shape dictated by this emulator rather
+// than by Snowflake.
+//
+// The .gz that AUTO_COMPRESS leaves needs no special case: `orders.csv` is a
+// prefix of `orders.csv.gz`.
+//
+// Sorted, because loading several files must happen in an order that does not
+// change between runs. Two identical runs that differ, with nothing saying why,
+// is the failure this family spends its time hunting.
 func stageFiles(dir, prefix string) ([]string, error) {
-	root := filepath.Join(dir, filepath.FromSlash(prefix))
-	info, err := os.Stat(root)
-	if err != nil {
-		return nil, fmt.Errorf("no file or prefix matching %q in the stage", prefix)
-	}
-	if !info.IsDir() {
-		return []string{root}, nil
-	}
 	var out []string
-	err = filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+	err := filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if !d.IsDir() {
+		if d.IsDir() {
+			return nil
+		}
+		rel, rerr := filepath.Rel(dir, p)
+		if rerr != nil {
+			return rerr
+		}
+		if strings.HasPrefix(filepath.ToSlash(rel), prefix) {
 			out = append(out, p)
 		}
 		return nil
@@ -161,7 +182,7 @@ func stageFiles(dir, prefix string) ([]string, error) {
 		return nil, err
 	}
 	if len(out) == 0 {
-		return nil, fmt.Errorf("prefix %q matches no files", prefix)
+		return nil, fmt.Errorf("no file or prefix matching %q in the stage", prefix)
 	}
 	sort.Strings(out)
 	return out, nil

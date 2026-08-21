@@ -67,7 +67,8 @@ the same run.
 | COPY INTO JSON |  | 🟢 |
 | External stages are refused |  | 🟢 |
 | An unsupported format option is refused |  | 🟢 |
-| A prefix is refused | Real Snowflake resolves a stage reference by prefix and loads EVERY file under it, which is the ordinary way to load a paged feed. This resolves one name and the `.gz` AUTO_COMPRESS leaves, so a prefix is refused BY NAME. It used to come back as duckdb's own words about a path inside the container, which left the reader to work out that the feature was missing rather than the file. | 🟢 |
+| A prefix loads every file under it | A stage reference matches every file whose path STARTS WITH it, which is Snowflake's rule and covers a directory, a partial name and an exact file with one behaviour. It was REFUSED by name until a consumer needed it: a task body is a single statement, so one COPY INTO per part file turns an eight-table bronze into thirty-odd chained tasks -- the emulator deciding the shape of a pipeline. The `.gz` that AUTO_COMPRESS leaves needs no special case, since the uncompressed name is a prefix of the compressed one. | 🟢 |
+| The prefix really loaded both parts |  | 🟢 |
 | PUT | The driver uploads the bytes itself, as it does against a real account: the answer names LOCAL_FS and the stage directory, and the connector's file transfer agent does the copying. AUTO_COMPRESS defaults to TRUE, so the stage holds `<name>.gz`. Set SNOWFLAKE_STAGE_CLIENT_DIR when the client sees the stage at a different path than the server does. | 🟢 |
 | REMOVE | duckdb: Parser Error: syntax error at or near "REMOVE" | 🔴 |
 | INFER_SCHEMA | TYPE reports the names an ACCOUNT reports -- NUMBER(38,0), TIMESTAMP_NTZ -- so a CREATE TABLE built from it is portable. DESCRIBE TABLE still reports the ENGINE's names (DECIMAL(38,0)), and deliberately: the family's `money_is_never_stored_as_float` contract accepts only `decimal` and `numeric` prefixes, so renaming what DESCRIBE reports would fail 52 gold contracts. The two statements answer in different vocabularies and that is recorded rather than reconciled. | 🟢 |
@@ -137,4 +138,4 @@ the same run.
 |---|---|---|
 | CREATE / SHOW / SUSPEND |  | 🟢 |
 
-_76 of 83 answered._
+_77 of 84 answered._
