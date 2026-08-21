@@ -51,7 +51,29 @@ var (
 	// fell through to duckdb -- which answers `Parser Error ... near "TASK"`,
 	// naming neither the statement nor why. A probe that picks a comfortable
 	// spelling measures the spelling.
-	reCreateTask = regexp.MustCompile(`(?is)^CREATE\s+(?:OR\s+REPLACE\s+)?TASK\s+(?:IF\s+NOT\s+EXISTS\s+)?([A-Za-z0-9_$."]+)\s+(?:(.*?)\s+)?AS\s+(.*)$`)
+	// `(?:(.*?)\s+)??` -- LAZY optional, and the second `?` is the fix.
+	//
+	// The properties clause is optional because a MANUAL TASK has none. It was
+	// written `(?:(.*?)\s+)?`, which is optional but GREEDY: the group prefers
+	// to participate rather than be skipped, so on a manual task it consumed
+	// the body's own first `AS` and latched onto a later one.
+	//
+	//   CREATE TASK t AS CREATE OR REPLACE TABLE x AS SELECT 1 AS n
+	//     stored body: `SELECT 1 AS n`      <- not the statement asked for
+	//
+	// The task then ran that, TASK_HISTORY said SUCCEEDED, EXECUTE TASK said
+	// "1 task(s) in the graph", and table x did not exist. A wrong body that
+	// SUCCEEDS is worse than one that fails: nothing anywhere says a different
+	// statement ran. SHOW TASKS did show the truncated body, which is the only
+	// reason it was findable at all.
+	//
+	// It bit ONLY manual tasks -- with `WAREHOUSE = w` present the first `AS`
+	// is already the right one, which is why every earlier probe of a CTAS
+	// body passed and this survived a previous attempt at the same fix. And it
+	// is the worst possible pairing: a manual task is the shape a pipeline
+	// triggered by hand wants, and `CREATE TABLE ... AS SELECT` is what a dbt
+	// model compiles to.
+	reCreateTask = regexp.MustCompile(`(?is)^CREATE\s+(?:OR\s+REPLACE\s+)?TASK\s+(?:IF\s+NOT\s+EXISTS\s+)?([A-Za-z0-9_$."]+)\s+(?:(.*?)\s+)??AS\s+(.*)$`)
 	reAlterTask  = regexp.MustCompile(`(?i)^ALTER\s+TASK\s+(?:IF\s+EXISTS\s+)?([A-Za-z0-9_$."]+)\s+(RESUME|SUSPEND)\b`)
 	reDropTask   = regexp.MustCompile(`(?i)^DROP\s+TASK\s+(?:IF\s+EXISTS\s+)?([A-Za-z0-9_$."]+)`)
 	reShowTasks  = regexp.MustCompile(`(?i)^SHOW\s+(?:TERSE\s+)?TASKS\b`)

@@ -119,6 +119,21 @@ PROBES = [
     ("Orchestration", "A manual task (no SCHEDULE, no AFTER)",
      "CREATE TASK p_manual AS SELECT 1"),
     ("Orchestration", "EXECUTE TASK on a manual task", "EXECUTE TASK p_manual"),
+    # A MANUAL TASK RUNS THE BODY IT WAS GIVEN, and the third probe is the one
+    # that bites. Every probe above is judged on whether the STATEMENT
+    # succeeded, which is one level away from whether anything happened: the
+    # two above passed for months while a manual task whose body contained
+    # ` AS ` stored a TRUNCATED body, ran that, and reported SUCCEEDED.
+    #
+    # `CREATE TASK t AS CREATE OR REPLACE TABLE x AS SELECT 1 AS n` kept only
+    # `SELECT 1 AS n`. Both statements still succeed, so nothing here could see
+    # it. Selecting from the table the body was supposed to create cannot pass
+    # unless the right statement ran -- and a CTAS is what a dbt model compiles
+    # to, so this is the body the Tasks consumer is actually made of.
+    ("Orchestration", "A manual task with a CTAS body",
+     "CREATE TASK p_body AS CREATE OR REPLACE TABLE p_body_out AS SELECT 1 AS n"),
+    ("Orchestration", "EXECUTE TASK runs the CTAS", "EXECUTE TASK p_body"),
+    ("Orchestration", "The CTAS body actually ran", "SELECT count(*) FROM p_body_out"),
     ("Orchestration", "CREATE STREAM", "CREATE STREAM p_stream ON TABLE p_t"),
     ("Orchestration", "Reading a stream", "SELECT count(*) FROM p_stream"),
     ("Orchestration", "SYSTEM$STREAM_HAS_DATA", "SELECT SYSTEM$STREAM_HAS_DATA('p_stream') AS has"),
