@@ -7,7 +7,14 @@ dependencies = []
 [dependency-groups]
 sdk = ["snowflake-connector-python>=4.2,<5"]
 sql = ["snowflake-connector-python>=4.2,<5"]
-dbt = ["dbt-snowflake>=1.8,<2"]
+# dbt-core PINNED BELOW 2, and that is a fidelity constraint rather than
+# caution. This lock resolved dbt-core 2.0.0b1 -- a PRERELEASE -- which turns
+# dbt's generic-test argument deprecations into hard errors and refuses
+# projects a real account accepts. Snowflake's dbt Projects run dbt 1.9.4 by
+# default, so an emulator running a 2.0 beta is stricter than the thing it
+# stands in for: contoso-data-product's gold parsed on every other engine and
+# failed with 11 DbtYamlValidationError here.
+dbt = ["dbt-snowflake>=1.8,<2", "dbt-core>=1.9,<2"]
 target = ["snowflake-target", "pytest>=8.3,<10"]
 
 [tool.uv]
