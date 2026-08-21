@@ -83,6 +83,7 @@ PROBES = [
      "SELECT CASE WHEN count(*) = 4 THEN 0 ELSE "
      "CAST('the prefix loaded the wrong number of rows' AS INT) END AS ok FROM p_prefix"),
     ("Stages", "PUT", "PUT file:///tmp/parity.csv @~"),
+    ("Stages", "GET", "GET @~/parity.csv file:///tmp/parity_get"),
     ("Stages", "REMOVE", "REMOVE @~/parity.csv"),
     # FILE_FORMAT IS REQUIRED, and the old probe here omitted it -- so the
     # statement this file was measuring is one a real account rejects, which
@@ -184,6 +185,11 @@ PROBES = [
     ("Orchestration", "SHOW DBT PROJECTS", "SHOW DBT PROJECTS"),
     ("Orchestration", "EXECUTE DBT PROJECT",
      "EXECUTE DBT PROJECT p_proj ARGS='run' ENV_VARS = (DBT_P_TAG = 'from_env_vars')"),
+    # WHERE dbt's OUTPUT WENT, which is what makes a failing run useful: the
+    # artefacts are left in the stage and fetched with GET afterwards, so they
+    # outlive the failure that a result set would have died with.
+    ("Orchestration", "dbt's run_results is in the stage, at the path it named",
+     "GET @~/_dbt_output/P_PROJ/run_results.json file:///tmp/p_rr"),
     ("Orchestration", "dbt really built the models",
      "SELECT CASE WHEN count(*) = 1 THEN 0 ELSE "
      "CAST('dbt reported success and built nothing' AS INT) END AS ok FROM p_dbt_two"),
@@ -225,6 +231,21 @@ CAVEATS = {
         "DBT PROJECT override it for one run; there is no ENV_VARS on CREATE. "
         "Storing it there would have the statement a caller actually runs ignore "
         "it, with the configuration sitting in plain sight in SHOW DBT PROJECTS."
+    ),
+    "GET": (
+        "The counterpart to PUT, and the only way a file comes back OUT of a "
+        "stage. EXECUTE DBT PROJECT leaves dbt's run_results.json there, which "
+        "is how a pipeline learns WHICH tests ran rather than which exist -- so "
+        "without GET a consumer is left publishing contract names nothing "
+        "evaluated. e2e-put asserts the round trip through the driver's own "
+        "file transfer agent, bytes included."
+    ),
+    "dbt's run_results is in the stage, at the path it named": (
+        "GET resolves the file, so this fails if the archive was not written -- "
+        "the path is the one OUTPUT_ARCHIVE_URL reports, and the one a failing "
+        "run names in its error. That is the point of leaving artefacts in the "
+        "stage rather than returning them: a failed run has no result set to "
+        "carry anything, and its evidence is what a caller most needs."
     ),
     "An ENV_VARS key dbt would never see is refused": (
         "Snowflake requires ENV_VARS keys UPPERCASE and DBT_-prefixed. "
@@ -350,6 +371,7 @@ CAVEATS = {
 # witnessed by the parity job, which is a real witness: it runs every
 # statement against the built image and fails if the answer changes.
 WITNESSES = {
+    "GET": ["ci:parity", "ci:e2e-put"],
     "An ENV_VARS key dbt would never see is refused": ["ci:parity", "go:TestEnvVarsKeysAreRefusedByName"],
     "ENV_VARS on CREATE is refused, and says where it belongs": ["ci:parity", "go:TestEnvVarsKeysAreRefusedByName"],
     "ENV_VARS reached the dbt process": ["ci:parity"],

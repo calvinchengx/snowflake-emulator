@@ -45,6 +45,11 @@ type dbtProject struct {
 	Target string
 }
 
+// dbtOutputPrefix is where in the user stage a project's output is left. A
+// stage path rather than a URL because that is what a caller here can read:
+// GET fetches it, and there is no signed-URL service to emulate.
+const dbtOutputPrefix = "_dbt_output"
+
 var (
 	reCreateDbtProject = regexp.MustCompile(`(?is)^CREATE\s+(?:OR\s+REPLACE\s+)?DBT\s+PROJECT\s+(?:IF\s+NOT\s+EXISTS\s+)?([A-Za-z0-9_$."]+)\s+FROM\s+'?([^'\s]+)'?\s*(.*)$`)
 	reExecDbtProject   = regexp.MustCompile(`(?is)^EXECUTE\s+DBT\s+PROJECT\s+([A-Za-z0-9_$."]+)\s*(.*)$`)
@@ -146,7 +151,7 @@ func (s *Server) handleDbtProjectSQL(w http.ResponseWriter, sess session, sqlTex
 			writeFail(w, http.StatusOK, "002103", err.Error())
 			return true
 		}
-		out, err := s.execDbtProject(sess, dbtKey(m[1]), m[2], env)
+		out, archive, err := s.execDbtProject(sess, dbtKey(m[1]), m[2], env)
 		if err != nil {
 			// A QUERY FAILURE, not a row saying FALSE. See the type comment.
 			writeFail(w, http.StatusOK, "002105", err.Error())
@@ -154,7 +159,7 @@ func (s *Server) handleDbtProjectSQL(w http.ResponseWriter, sess session, sqlTex
 		}
 		writeQueryOK(w,
 			[]string{"Success", "EXCEPTION", "STDOUT", "OUTPUT_ARCHIVE_URL"},
-			[][]string{{"TRUE", "None", out, ""}}, "duckdb")
+			[][]string{{"TRUE", "None", out, archive}}, "duckdb")
 		return true
 	}
 	return false
@@ -188,12 +193,12 @@ func dbtEnvVars(rest string) (map[string]string, error) {
 	return env, nil
 }
 
-func (s *Server) execDbtProject(sess session, name, rest string, env map[string]string) (string, error) {
+func (s *Server) execDbtProject(sess session, name, rest string, env map[string]string) (stdout, archive string, err error) {
 	s.mu.Lock()
 	p, ok := s.dbtProjects[name]
 	s.mu.Unlock()
 	if !ok {
-		return "", fmt.Errorf("dbt project %s does not exist", name)
+		return "", "", fmt.Errorf("dbt project %s does not exist", name)
 	}
 
 	args := "run"
@@ -202,27 +207,27 @@ func (s *Server) execDbtProject(sess session, name, rest string, env map[string]
 	}
 	fields := dbtArgFields(args)
 	if len(fields) == 0 {
-		return "", fmt.Errorf("EXECUTE DBT PROJECT needs ARGS naming a dbt command, e.g. ARGS='run'")
+		return "", "", fmt.Errorf("EXECUTE DBT PROJECT needs ARGS naming a dbt command, e.g. ARGS='run'")
 	}
 	if !dbtSupportedSubcommands[strings.ToLower(fields[0])] {
 		// Named rather than passed through: Snowflake supports run, test and
 		// deps, and letting `seed` or `snapshot` reach the CLI here would make
 		// this emulator answer a statement a real account refuses.
-		return "", fmt.Errorf("dbt subcommand %q is not supported by EXECUTE DBT PROJECT: "+
+		return "", "", fmt.Errorf("dbt subcommand %q is not supported by EXECUTE DBT PROJECT: "+
 			"Snowflake supports run, test and deps", fields[0])
 	}
 
 	sm := reDbtStageSource.FindStringSubmatch(p.Source)
 	if sm == nil {
-		return "", fmt.Errorf("dbt project %s has an unusable source %q", name, p.Source)
+		return "", "", fmt.Errorf("dbt project %s has an unusable source %q", name, p.Source)
 	}
 	stageRoot, err := s.stageDir(sm[1])
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	src := filepath.Join(stageRoot, filepath.FromSlash(strings.TrimPrefix(sm[2], "/")))
 	if _, err := os.Stat(filepath.Join(src, "dbt_project.yml")); err != nil {
-		return "", fmt.Errorf("dbt project %s: %s has no dbt_project.yml at its root", name, p.Source)
+		return "", "", fmt.Errorf("dbt project %s: %s has no dbt_project.yml at its root", name, p.Source)
 	}
 
 	// COPIED OUT OF THE STAGE, not run in place. dbt writes target/ and logs/
@@ -231,20 +236,20 @@ func (s *Server) execDbtProject(sess session, name, rest string, env map[string]
 	// there on every run.
 	work, err := os.MkdirTemp("", "dbt-project-")
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	defer func() { _ = os.RemoveAll(work) }()
 	proj := filepath.Join(work, "project")
 	if err := copyTree(src, proj); err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	profiles := filepath.Join(work, "profiles")
 	if err := os.MkdirAll(profiles, 0o755); err != nil {
-		return "", err
+		return "", "", err
 	}
 	if err := s.writeDbtProfile(sess, proj, profiles); err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	argv := append(fields, "--project-dir", proj, "--profiles-dir", profiles)
@@ -268,14 +273,64 @@ func (s *Server) execDbtProject(sess session, name, rest string, env map[string]
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}
 	out, runErr := cmd.CombinedOutput()
+
+	// THE ARTEFACTS LAND BEFORE THE ERROR IS RETURNED, and they land in the
+	// STAGE rather than in the response.
+	//
+	// This is the shape Snowflake chose and it is better than carrying them
+	// back inline. A failing `dbt test` is exactly when run_results.json is
+	// worth having -- it names WHICH test failed and on how many rows, where
+	// the failure alone says only that something did -- and a failed run has no
+	// result set to carry anything. Leaving them somewhere the caller fetches
+	// AFTERWARDS means the evidence outlives the failure instead of dying with
+	// it. databricks-emulator learned the same thing from the other side: it
+	// returned artefacts inline, and the exception reporting the failure took
+	// them with it.
+	archive, archErr := s.storeDbtOutput(name, proj)
+	if archErr != nil {
+		return string(out), "", fmt.Errorf("dbt ran and its output could not be stored: %w", archErr)
+	}
+
 	if runErr != nil {
 		if _, statErr := exec.LookPath("dbt"); statErr != nil {
-			return "", fmt.Errorf("EXECUTE DBT PROJECT needs dbt in this image and it is "+
+			return "", "", fmt.Errorf("EXECUTE DBT PROJECT needs dbt in this image and it is "+
 				"not there (%v); the published image carries it from 0.2.0 onward", statErr)
 		}
-		return string(out), fmt.Errorf("dbt %s failed: %s", args, lastMeaningfulLine(string(out)))
+		return string(out), archive, fmt.Errorf("dbt %s failed: %s. Its output is in %s",
+			args, lastMeaningfulLine(string(out)), archive)
 	}
-	return string(out), nil
+	return string(out), archive, nil
+}
+
+// storeDbtOutput copies what dbt wrote into the stage, and returns the stage
+// reference a caller reads it back with -- the OUTPUT_ARCHIVE_URL column.
+//
+// run_results.json ALONE. manifest.json is large, changes on every parse, and
+// no caller has asked for it; dbt's own words are already returned as STDOUT.
+// run_results is the one a pipeline needs, because it says which tests were
+// EVALUATED rather than which exist -- the difference between a snapshot
+// naming guarantees and a snapshot naming guarantees something checked.
+//
+// OVERWRITTEN PER PROJECT rather than accumulated. A stage that grows a
+// directory per run is one a consumer has to garbage-collect, and nothing here
+// knows when a caller has finished reading one.
+func (s *Server) storeDbtOutput(name, projectDir string) (string, error) {
+	body, err := os.ReadFile(filepath.Join(projectDir, "target", "run_results.json"))
+	if err != nil {
+		// A run that produced none is not an error: `dbt deps` writes no
+		// run_results, and a project that failed to parse never got that far.
+		// An empty archive path says that, where an invented empty file would
+		// be believed.
+		return "", nil
+	}
+	dir := filepath.Join(s.Cfg.StageDir, dbtOutputPrefix, name)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(filepath.Join(dir, "run_results.json"), body, 0o644); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("@~/%s/%s", dbtOutputPrefix, name), nil
 }
 
 // writeDbtProfile generates the profile dbt will resolve, under the name the

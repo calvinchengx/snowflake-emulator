@@ -100,6 +100,54 @@ func (s *Server) handleStageSQL(w http.ResponseWriter, sqlText string) bool {
 		return true
 	}
 
+	// GET, the counterpart to PUT and the only way a caller gets a file back
+	// OUT of a stage. It exists because EXECUTE DBT PROJECT writes dbt's own
+	// artefacts there: `run_results.json` is how a consumer learns WHICH tests
+	// ran, and a pipeline that cannot read it is left publishing contract names
+	// nothing evaluated.
+	if m := reGet.FindStringSubmatch(trimmed); m != nil {
+		stage, path, err := splitStageRef("@" + m[1])
+		if err != nil {
+			writeFail(w, http.StatusOK, "001013", err.Error())
+			return true
+		}
+		dir, err := s.stageDir(stage)
+		if err != nil {
+			writeFail(w, http.StatusOK, "001013", err.Error())
+			return true
+		}
+		files, err := stageFiles(dir, path)
+		if err != nil {
+			writeFail(w, http.StatusOK, "001014", err.Error())
+			return true
+		}
+		// RELATIVE TO THE STAGE, because that is what the driver joins onto
+		// stageInfo.location. An absolute path here reads as a second root and
+		// the agent looks for the file inside itself.
+		rel := make([]string, 0, len(files))
+		for _, f := range files {
+			r, rerr := filepath.Rel(dir, f)
+			if rerr != nil {
+				writeFail(w, http.StatusOK, "001015", rerr.Error())
+				return true
+			}
+			rel = append(rel, filepath.ToSlash(r))
+		}
+		// The stage as the CLIENT sees it, which differs from this process's
+		// view only when the two are given different paths for it.
+		clientDir := dir
+		if s.Cfg.StageClientDir != "" {
+			r, rerr := filepath.Rel(s.Cfg.StageDir, dir)
+			if rerr != nil {
+				writeFail(w, http.StatusOK, "001016", rerr.Error())
+				return true
+			}
+			clientDir = filepath.Join(s.Cfg.StageClientDir, r)
+		}
+		writeDownloadOK(w, rel, clientDir, strings.TrimPrefix(m[2], "file://"))
+		return true
+	}
+
 	if m := rePut.FindStringSubmatch(trimmed); m != nil {
 		s.handlePut(w, m)
 		return true
@@ -260,6 +308,7 @@ func quote(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'
 var (
 	rePut       = regexp.MustCompile(`(?i)^PUT\s+'?([a-z0-9+.-]+://[^'\s]+)'?\s+'?@([A-Za-z0-9_$~][A-Za-z0-9_$~./]*)'?\s*(.*)$`)
 	rePutOption = regexp.MustCompile(`(?i)([A-Za-z_]+)\s*=\s*('[^']*'|[A-Za-z0-9_]+)`)
+	reGet       = regexp.MustCompile(`(?i)^GET\s+'?@([A-Za-z0-9_$~][A-Za-z0-9_$~./]*)'?\s+'?([a-z0-9+.-]+://[^'\s]+)'?\s*(.*)$`)
 )
 
 // putOptions is the subset of PUT's option list that changes what the driver
@@ -369,6 +418,42 @@ func (s *Server) handlePut(w http.ResponseWriter, m []string) {
 	}
 
 	writeUploadOK(w, strings.TrimPrefix(src, "file://"), clientDest, opts)
+}
+
+// writeDownloadOK renders the response a driver's file transfer agent reads
+// for a GET.
+//
+// SAME SHAPE AS UPLOAD, different command and one extra field: the agent needs
+// `localLocation` to know where to put what it fetches, and `src_locations`
+// naming the files RELATIVE to stageInfo.location, which it joins. Derived
+// from the drivers rather than from documentation, exactly as writeUploadOK
+// was -- the Python connector's _parse_command reads these names and errors
+// without them.
+func writeDownloadOK(w http.ResponseWriter, srcs []string, stageDir, localDir string) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"success": true,
+		"message": nil,
+		"code":    nil,
+		"data": map[string]any{
+			"command":       "DOWNLOAD",
+			"src_locations": srcs,
+			"localLocation": localDir,
+			"parallel":      4,
+			"threshold":     67108864,
+			"autoCompress":  false,
+			"overwrite":     true,
+			"stageInfo": map[string]any{
+				"locationType":          "LOCAL_FS",
+				"location":              stageDir + string(os.PathSeparator),
+				"path":                  "",
+				"region":                "",
+				"isClientSideEncrypted": false,
+				"creds":                 map[string]any{},
+			},
+			"queryId":  "q1",
+			"sqlState": "00000",
+		},
+	})
 }
 
 // writeUploadOK renders the response the drivers' file transfer agents read.

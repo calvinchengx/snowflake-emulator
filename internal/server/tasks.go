@@ -333,7 +333,7 @@ func (s *Server) execTaskBody(t *task, sqlText string) (engine.Result, error) {
 		if err != nil {
 			return engine.Result{}, err
 		}
-		if _, err := s.execDbtProject(session{Warehouse: t.Warehouse}, dbtKey(m[1]), m[2], env); err != nil {
+		if _, _, err := s.execDbtProject(session{Warehouse: t.Warehouse}, dbtKey(m[1]), m[2], env); err != nil {
 			return engine.Result{}, err
 		}
 		return engine.Result{Dialect: "duckdb"}, nil
