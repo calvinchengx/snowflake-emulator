@@ -420,53 +420,16 @@ func writeUploadOK(w http.ResponseWriter, srcPath, dest string, o putOptions) {
 // EVERY file under the prefix; this resolves one name and its compressed
 // spelling. A prefix naming several files is a different statement and is not
 // implemented, rather than being half-implemented as "the first one".
+// stageFile is stageFiles where exactly one file is meant. GET names one file.
 func stageFile(dir, path string) (string, error) {
-	// A PREFIX IS REFUSED BY NAME, and this is the arm that earns the
-	// function. Real Snowflake resolves a stage reference by prefix and loads
-	// EVERY file under it, which is the ordinary way to load a paged feed.
-	// This emulator resolves one name. The difference used to surface as
-	// duckdb's own words -- `IO Error: No files found that match the pattern
-	// "/stages/feed"` -- which names a path inside a container and a duckdb
-	// concept, and leaves the reader to work out that the feature is missing
-	// rather than the file. Naming it costs a line and saves that.
-	if prefix, why := looksLikeAPrefix(path); prefix {
-		return "", fmt.Errorf(
-			"COPY INTO from a prefix is not implemented (%s): name one file. "+
-				"Snowflake loads every file under a prefix; this resolves one name "+
-				"and the .gz that AUTO_COMPRESS leaves", why)
+	files, err := stageFiles(dir, path)
+	if err != nil {
+		return "", err
 	}
-	exact := filepath.Join(dir, filepath.FromSlash(path))
-	if info, err := os.Stat(exact); err == nil {
-		if info.IsDir() {
-			return "", fmt.Errorf(
-				"COPY INTO from a prefix is not implemented (%q is a directory): "+
-					"name one file. Snowflake loads every file under a prefix; this "+
-					"resolves one name and the .gz that AUTO_COMPRESS leaves", path)
-		}
-		return exact, nil
+	if len(files) > 1 {
+		return "", fmt.Errorf("%q names %d files in the stage; this statement takes one", path, len(files))
 	}
-	if gz := exact + ".gz"; path != "" {
-		if _, err := os.Stat(gz); err == nil {
-			return gz, nil
-		}
-	}
-	return "", fmt.Errorf("no file matching %q in the stage", path)
-}
-
-// looksLikeAPrefix names the forms that are a prefix on their face, before
-// anything is stat-ed. A glob is included: it is a prefix with a filter, this
-// emulator honours neither, and answering "no file matching" for a pattern
-// that matches two files is the wrong sentence.
-func looksLikeAPrefix(path string) (bool, string) {
-	switch {
-	case path == "":
-		return true, "the whole stage"
-	case strings.HasSuffix(path, "/"):
-		return true, "a trailing slash"
-	case strings.ContainsAny(path, "*?["):
-		return true, "a glob"
-	}
-	return false, ""
+	return files[0], nil
 }
 
 // preparePutDir makes the destination a directory the CLIENT can write into.

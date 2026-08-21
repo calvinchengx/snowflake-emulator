@@ -634,7 +634,8 @@ func (s *Server) rewriteCopy(sqlText string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	src, err := stageFile(dir, path)
+	// EVERY file under the prefix, which is what a stage reference means.
+	srcs, err := stageFiles(dir, path)
 	if err != nil {
 		return "", fmt.Errorf("stage file @%s/%s: %w", stage, path, err)
 	}
@@ -643,7 +644,19 @@ func (s *Server) rewriteCopy(sqlText string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("COPY %s FROM '%s' %s", table, src, format.duckdbOptions()), nil
+	// ONE COPY PER FILE, joined into a script, rather than a duckdb glob.
+	//
+	// The engine runs the whole script -- that is how the prelude reaches every
+	// statement -- so this needs no new machinery. A glob would push the file
+	// set down into duckdb's pattern language, where `feed/part_` is not a
+	// prefix at all and the .gz would need its own case; the files are already
+	// resolved here, by Snowflake's rule, and naming them keeps that rule in
+	// one place.
+	parts := make([]string, 0, len(srcs))
+	for _, src := range srcs {
+		parts = append(parts, fmt.Sprintf("COPY %s FROM '%s' %s", table, src, format.duckdbOptions()))
+	}
+	return strings.Join(parts, ";\n"), nil
 }
 
 // formatFor resolves the FILE_FORMAT clause: an inline option list, a named

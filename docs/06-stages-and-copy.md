@@ -66,23 +66,25 @@ PUT file:///tmp/orders.csv @~   →   the stage holds orders.csv.gz
 ```
 
 Answering `FALSE` would be more convenient here and would teach a consumer the
-wrong stage contents. Because real Snowflake resolves a stage path by prefix,
-`COPY INTO ... FROM @~/orders.csv` finds that compressed file there; this
-emulator resolves one name and its `.gz` spelling, which is **narrower**.
+wrong stage contents.
 
-A prefix naming several files loads all of them on a real account. Here it is
-**refused by name**, rather than half-implemented as "the first one":
+**A stage reference is a prefix**, which is Snowflake's rule: it matches every
+file whose path *starts with* the reference. One behaviour covers all the forms.
 
 ```
-COPY INTO t FROM @~/feed/
-  →  COPY INTO from a prefix is not implemented (a trailing slash): name one
-     file. Snowflake loads every file under a prefix; this resolves one name
-     and the .gz that AUTO_COMPRESS leaves
+COPY INTO t FROM @~/feed/          -- every file under feed/
+COPY INTO t FROM @~/feed/part_     -- part_0.csv, part_1.csv
+COPY INTO t FROM @~/orders.csv     -- that file, and the .csv.gz AUTO_COMPRESS
+                                   -- leaves, because the name prefixes it
 ```
 
-A trailing slash, a directory, a glob and the bare stage are all refused this
-way. It used to come back as duckdb's own words instead:
+Files load in sorted order, so two identical runs load identically.
 
+This was **refused by name** until a consumer needed it, and the refusal was
+honest while it stood. What made it worth removing is what a prefix is *for*: a
+task body is a single statement, so one `COPY INTO` per part file turns an
+eight-table bronze into thirty-odd chained tasks — the emulator deciding the
+shape of a pipeline rather than Snowflake.
 ```
 duckdb: IO Error: No files found that match the pattern "/stages/feed"
 ```
@@ -128,7 +130,7 @@ ok         | BOOLEAN
 
 Four things about it are worth knowing:
 
-**A prefix is the ordinary form**, unlike `COPY INTO`, which resolves one name.
+**A prefix is the ordinary form**, and `COPY INTO` reads one the same way.
 A feed is a directory of parts and describing it is the whole point.
 
 **Files that disagree are unioned by name.** `FILENAMES` is per column — a
