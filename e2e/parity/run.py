@@ -107,7 +107,11 @@ def measure() -> list[tuple[str, str, bool, str]]:
         "  send_anonymous_usage_stats: false\n",
         encoding="utf-8",
     )
-    (proj / "models" / "p_dbt_one.sql").write_text("select 1 as n\n", encoding="utf-8")
+    # env_var(), because that is how a dbt project on Snowflake is given a
+    # value, and a model that used none would leave the path unwitnessed: the
+    # project would build either way and only its CONTENTS would be wrong.
+    (proj / "models" / "p_dbt_one.sql").write_text(
+        "select 1 as n, '{{ env_var('DBT_P_TAG') }}' as tag\n", encoding="utf-8")
     (proj / "models" / "p_dbt_two.sql").write_text(
         "select n from {{ ref('p_dbt_one') }}\n", encoding="utf-8")
     for child in proj.rglob("*"):

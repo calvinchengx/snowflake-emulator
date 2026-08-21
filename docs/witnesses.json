@@ -444,6 +444,14 @@
       "ci:parity"
     ]
   },
+  "an-envvars-key-dbt-would-never-see-is-refused": {
+    "section": "Orchestration",
+    "claim": "An ENV_VARS key dbt would never see is refused",
+    "witnesses": [
+      "ci:parity",
+      "go:TestEnvVarsKeysAreRefusedByName"
+    ]
+  },
   "show-dbt-projects": {
     "section": "Orchestration",
     "claim": "SHOW DBT PROJECTS",
@@ -461,6 +469,13 @@
   "dbt-really-built-the-models": {
     "section": "Orchestration",
     "claim": "dbt really built the models",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "envvars-reached-the-dbt-process": {
+    "section": "Orchestration",
+    "claim": "ENV_VARS reached the dbt process",
     "witnesses": [
       "ci:parity"
     ]

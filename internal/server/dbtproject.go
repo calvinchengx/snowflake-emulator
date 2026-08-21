@@ -43,6 +43,7 @@ type dbtProject struct {
 	Name   string
 	Source string // as written: @~/sub, @my_stage/sub
 	Target string
+	Env    map[string]string
 }
 
 var (
@@ -52,6 +53,8 @@ var (
 	reShowDbtProjects  = regexp.MustCompile(`(?i)^SHOW\s+(?:TERSE\s+)?DBT\s+PROJECTS\b`)
 	reDbtArgs          = regexp.MustCompile(`(?is)ARGS\s*=\s*'([^']*)'`)
 	reDbtDefaultTarget = regexp.MustCompile(`(?i)DEFAULT_TARGET\s*=\s*'?([A-Za-z0-9_]+)'?`)
+	reDbtEnvVars       = regexp.MustCompile(`(?is)ENV_VARS\s*=\s*\(([^)]*)\)`)
+	reDbtEnvPair       = regexp.MustCompile(`(?is)([A-Za-z_][A-Za-z0-9_]*)\s*=\s*'([^']*)'`)
 	reDbtProfileKey    = regexp.MustCompile(`(?im)^profile:\s*(.+)$`)
 	// A source may be a workspace, a git-repository stage or another project on
 	// a real account. Only the internal named stage is served here, and the
@@ -85,6 +88,25 @@ func (s *Server) handleDbtProjectSQL(w http.ResponseWriter, sess session, sqlTex
 		p := dbtProject{Name: name, Source: source}
 		if t := reDbtDefaultTarget.FindStringSubmatch(rest); t != nil {
 			p.Target = t[1]
+		}
+		if e := reDbtEnvVars.FindStringSubmatch(rest); e != nil {
+			p.Env = map[string]string{}
+			for _, kv := range reDbtEnvPair.FindAllStringSubmatch(e[1], -1) {
+				key := kv[1]
+				// REFUSED BY NAME, the way a real account does: Snowflake
+				// requires ENV_VARS keys to be UPPERCASE and DBT_-prefixed.
+				// Accepting `bronze_schema` here and having dbt never see it
+				// would be the silent kind of wrong -- env_var() would fall to
+				// its default and the models would read the wrong schema
+				// without anything failing.
+				if key != strings.ToUpper(key) || !strings.HasPrefix(key, "DBT_") {
+					writeFail(w, http.StatusOK, "002103", fmt.Sprintf(
+						"ENV_VARS key %q is not usable: Snowflake requires them "+
+							"UPPERCASE and prefixed DBT_", key))
+					return true
+				}
+				p.Env[key] = kv[2]
+			}
 		}
 		s.mu.Lock()
 		if s.dbtProjects == nil {
@@ -153,7 +175,7 @@ func (s *Server) execDbtProject(sess session, name, rest string) (string, error)
 	if m := reDbtArgs.FindStringSubmatch(rest); m != nil {
 		args = strings.TrimSpace(m[1])
 	}
-	fields := strings.Fields(args)
+	fields := dbtArgFields(args)
 	if len(fields) == 0 {
 		return "", fmt.Errorf("EXECUTE DBT PROJECT needs ARGS naming a dbt command, e.g. ARGS='run'")
 	}
@@ -214,6 +236,12 @@ func (s *Server) execDbtProject(sess session, name, rest string) (string, error)
 		"DBT_SEND_ANONYMOUS_USAGE_STATS=false",
 		"HOME="+work,
 	)
+	// The project's own ENV_VARS, which is how a dbt project on Snowflake gets
+	// an `env_var()` answered. Applied last so a project cannot be silently
+	// overridden by whatever this process happens to have in its environment.
+	for k, v := range p.Env {
+		cmd.Env = append(cmd.Env, k+"="+v)
+	}
 	out, runErr := cmd.CombinedOutput()
 	if runErr != nil {
 		if _, statErr := exec.LookPath("dbt"); statErr != nil {
@@ -240,6 +268,48 @@ func (s *Server) execDbtProject(sess session, name, rest string) (string, error)
 // whole profile instead. Reading and merging YAML would need a YAML dependency
 // this repository does not have, and the emulator knows every value that
 // matters -- it is the account.
+// dbtArgFields splits ARGS the way a shell would, respecting quotes.
+//
+// NOT strings.Fields. ARGS is a string of dbt CLI arguments, and the one a
+// medallion needs most carries JSON:
+//
+//	ARGS='run --vars {"bronze_pos_orders": "bronze_pos_orders"}'
+//
+// Splitting that on whitespace hands dbt a fragment per key and it fails on
+// something that looks nothing like the cause. Quotes group, and are removed,
+// exactly as a shell does before dbt would ever see them.
+func dbtArgFields(args string) []string {
+	var out []string
+	var cur strings.Builder
+	var quote rune
+	started := false
+	for _, r := range args {
+		switch {
+		case quote != 0:
+			if r == quote {
+				quote = 0
+			} else {
+				cur.WriteRune(r)
+			}
+		case r == '\'' || r == '"':
+			quote = r
+			started = true
+		case r == ' ' || r == '\t' || r == '\n':
+			if started || cur.Len() > 0 {
+				out = append(out, cur.String())
+				cur.Reset()
+				started = false
+			}
+		default:
+			cur.WriteRune(r)
+		}
+	}
+	if started || cur.Len() > 0 {
+		out = append(out, cur.String())
+	}
+	return out
+}
+
 func (s *Server) writeDbtProfile(sess session, projectDir, profilesDir string) error {
 	body, err := os.ReadFile(filepath.Join(projectDir, "dbt_project.yml"))
 	if err != nil {
