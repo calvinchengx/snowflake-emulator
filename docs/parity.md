@@ -116,9 +116,11 @@ the same run.
 | A task body reads a stream |  | 🟢 |
 | EXECUTE TASK runs the stream read |  | 🟢 |
 | CREATE DBT PROJECT |  | 🟢 |
+| An ENV_VARS key dbt would never see is refused | Snowflake requires ENV_VARS keys UPPERCASE and DBT_-prefixed. Accepting one dbt will never read is the silent kind of wrong: env_var() falls to its default and the models read the wrong thing with nothing failing. | 🟢 |
 | SHOW DBT PROJECTS |  | 🟢 |
 | EXECUTE DBT PROJECT | dbt runs in THIS image, on argv, the same way duckdb does -- no second service and no network hop between the statement and what executes it. The profile is generated under the name the PROJECT declares, so a project runs here without being edited to say an emulator-specific one. | 🟢 |
 | dbt really built the models | Read back from the model dbt was asked to build, so this cannot pass on a run that reported success and built nothing. | 🟢 |
+| ENV_VARS reached the dbt process | Read back from a column the model fills with env_var(), so it cannot pass on a project that built while the value never arrived. | 🟢 |
 | A dbt failure fails the QUERY | `build` is not one of run, test or deps, so it is refused by name. Snowflake made dbt errors query failures in October 2025 precisely so tasks could handle them: a failed run that returned Success = FALSE from a SUCCESSFUL statement let a task graph run its downstream nodes anyway. | 🟢 |
 | A dbt task with no warehouse is refused |  | 🟢 |
 | A task body runs EXECUTE DBT PROJECT |  | 🟢 |
@@ -138,4 +140,4 @@ the same run.
 |---|---|---|
 | CREATE / SHOW / SUSPEND |  | 🟢 |
 
-_77 of 84 answered._
+_79 of 86 answered._
