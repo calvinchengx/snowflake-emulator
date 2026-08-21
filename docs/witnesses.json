@@ -429,6 +429,69 @@
       "ci:parity"
     ]
   },
+  "create-dbt-project": {
+    "section": "Orchestration",
+    "claim": "CREATE DBT PROJECT",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "show-dbt-projects": {
+    "section": "Orchestration",
+    "claim": "SHOW DBT PROJECTS",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "execute-dbt-project": {
+    "section": "Orchestration",
+    "claim": "EXECUTE DBT PROJECT",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "dbt-really-built-the-models": {
+    "section": "Orchestration",
+    "claim": "dbt really built the models",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "a-dbt-failure-fails-the-query": {
+    "section": "Orchestration",
+    "claim": "A dbt failure fails the QUERY",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "a-dbt-task-with-no-warehouse-is-refused": {
+    "section": "Orchestration",
+    "claim": "A dbt task with no warehouse is refused",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "a-task-body-runs-execute-dbt-project": {
+    "section": "Orchestration",
+    "claim": "A task body runs EXECUTE DBT PROJECT",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "execute-task-runs-the-dbt-project": {
+    "section": "Orchestration",
+    "claim": "EXECUTE TASK runs the dbt project",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "drop-dbt-project": {
+    "section": "Orchestration",
+    "claim": "DROP DBT PROJECT",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
   "the-task-s-stream-read-actually-inserted": {
     "section": "Orchestration",
     "claim": "The task's stream read actually inserted",

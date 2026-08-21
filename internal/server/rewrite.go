@@ -20,8 +20,20 @@ var (
 	reDescribe     = regexp.MustCompile(`(?i)^DESC(?:RIBE)?\s+TABLE\s+`)
 	reCreateDB     = regexp.MustCompile(`(?i)^CREATE\s+(?:OR\s+REPLACE\s+)?DATABASE\b`)
 	reCreateSchema = regexp.MustCompile(`(?i)^CREATE\s+(?:OR\s+REPLACE\s+)?SCHEMA\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:[A-Za-z0-9_]+\.)?([A-Za-z0-9_]+)`)
-	reThreePart    = regexp.MustCompile(`(?i)\b[A-Za-z0-9_]+\.(PUBLIC|GOLD|SILVER|MAIN)\.`)
-	rePublicDot    = regexp.MustCompile(`(?i)\bPUBLIC\.`)
+	// QUOTED IDENTIFIERS TOO, and they are not a rare spelling: dbt-snowflake
+	// quotes every part when it drops an existing relation --
+	// `drop table if exists "TEST_DB"."PUBLIC"."P_DBT_ONE" cascade` -- which is
+	// what a SECOND run of the same models issues. The first run has nothing to
+	// drop, so an unquoted-only rewrite passed every first run and failed every
+	// one after it, with `Catalog "TEST_DB" does not exist!` naming a catalog
+	// the caller never mentioned.
+	//
+	// The closing quote of the TABLE is deliberately left alone: stripping
+	// `"TEST_DB"."PUBLIC".` from the above leaves `"P_DBT_ONE"`, still a
+	// balanced quoted identifier. Consuming the opening quote as well would
+	// leave `P_DBT_ONE"` and turn a name into a syntax error.
+	reThreePart = regexp.MustCompile(`(?i)"?\b[A-Za-z0-9_$]+\b"?\."?(PUBLIC|GOLD|SILVER|MAIN)"?\.`)
+	rePublicDot = regexp.MustCompile(`(?i)"?\bPUBLIC\b"?\.`)
 )
 
 func rewriteSQL(sql string, sess session) (string, string, bool, error) {

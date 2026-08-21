@@ -110,3 +110,36 @@ func TestAnUnterminatedLiteralDoesNotEatTheRest(t *testing.T) {
 	// Left for the engine to reject, but it must not panic or loop.
 	_ = rewriteDateParts("SELECT 'oops, DATEDIFF(day, a, b)")
 }
+
+// A QUOTED three-part name is the same name, and dbt writes them.
+//
+// dbt-snowflake quotes every part when it drops an existing relation:
+// `drop table if exists "TEST_DB"."PUBLIC"."P_DBT_ONE" cascade`. That is what
+// a SECOND run of the same models issues -- the first has nothing to drop --
+// so an unquoted-only rewrite passed every first run and failed every one
+// after it, answering `Catalog "TEST_DB" does not exist!` about a catalog the
+// caller never mentioned. A pipeline on a schedule meets this on day two.
+func TestAQuotedThreePartNameIsStrippedToo(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{`drop table if exists "TEST_DB"."PUBLIC"."P_ONE" cascade`,
+			`drop table if exists "P_ONE" cascade`},
+		{`select n from "TEST_DB"."PUBLIC"."P_ONE"`,
+			`select n from "P_ONE"`},
+		// Unquoted must keep working exactly as before.
+		{`create or replace view TEST_DB.PUBLIC.p_one as (select 1)`,
+			`create or replace view p_one as (select 1)`},
+		{`select * from TEST_DB.GOLD.fct`, `select * from fct`},
+	} {
+		got := rePublicDot.ReplaceAllString(reThreePart.ReplaceAllString(tc.in, ""), "")
+		if got != tc.want {
+			t.Errorf("%s\n  got  %s\n  want %s", tc.in, got, tc.want)
+		}
+	}
+
+	// The TABLE's own quotes must survive: consuming its opening quote would
+	// leave `P_ONE"` and turn a name into a syntax error.
+	got := reThreePart.ReplaceAllString(`drop table "A"."PUBLIC"."P_ONE"`, "")
+	if strings.Count(got, `"`)%2 != 0 {
+		t.Fatalf("unbalanced quotes after the strip: %s", got)
+	}
+}

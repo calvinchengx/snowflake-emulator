@@ -169,6 +169,21 @@ func parseTask(name, opts, body string) (*task, error) {
 	if m := reTaskWarehouse.FindStringSubmatch(opts); m != nil {
 		t.Warehouse = strings.Trim(m[1], `"`)
 	}
+	// A dbt task without a warehouse is refused AT CREATE, because Snowflake
+	// requires one: "when you create a task that executes the EXECUTE DBT
+	// PROJECT command, you must specify a user-managed warehouse". dbt connects
+	// back as an ordinary client and a client needs a warehouse to run in.
+	//
+	// Refused here rather than discovered at run time, which is what happened
+	// while this was built: the task ran, dbt could not reach a warehouse, and
+	// the failure read `dbt run failed: 2 total | 1 error | 1 skipped` --
+	// naming neither the warehouse nor the task's missing clause. A dispatch
+	// spent to learn something the CREATE already showed.
+	if t.Warehouse == "" && reExecDbtProject.MatchString(t.SQL) {
+		return nil, fmt.Errorf("a task whose body is EXECUTE DBT PROJECT must name a "+
+			"WAREHOUSE: dbt connects back as a client and has nowhere to run without "+
+			"one (task %s)", t.Name)
+	}
 	if m := reTaskSchedule.FindStringSubmatch(opts); m != nil {
 		t.ScheduleT = m[1]
 		if strings.Contains(strings.ToUpper(m[1]), "CRON") {
@@ -273,7 +288,7 @@ func (s *Server) runTaskGraph(w http.ResponseWriter, name, from string) {
 // Stream-driven CDC and stage loading are the two shapes a medallion pipeline
 // is built from, so between them this covered most of what anyone would put in
 // a task here.
-func (s *Server) execTaskBody(sqlText string) (engine.Result, error) {
+func (s *Server) execTaskBody(t *task, sqlText string) (engine.Result, error) {
 	// The same order the HTTP path uses. Streams first, so the engine never
 	// sees a name it has no table for; the advance happens whatever the engine
 	// then makes of it, exactly as the deferred advance does over there.
@@ -284,6 +299,36 @@ func (s *Server) execTaskBody(sqlText string) (engine.Result, error) {
 	if expanded != sqlText {
 		defer s.advanceStreams(sqlText)
 		sqlText = expanded
+	}
+	// EXECUTE DBT PROJECT is the reason Snowflake documents tasks for dbt at
+	// all: `CREATE TASK build AS EXECUTE DBT PROJECT p ARGS='run'` chained by
+	// AFTER to a `test` task is their own orchestration example. A task is
+	// where this statement is MEANT to run, so a task body that could not
+	// carry it would leave the feature reachable only by hand.
+	//
+	// A task has no session, so the generated profile takes the emulator's
+	// defaults -- the same ones current_database() and current_schema() answer
+	// with when a session set none.
+	if m := reExecDbtProject.FindStringSubmatch(strings.TrimSpace(sqlText)); m != nil {
+		// The rows go nowhere -- runOrder keeps a task's state, not its result
+		// set -- so what matters here is the ERROR. A failing dbt run fails the
+		// statement, which fails the task, which stops the graph and records
+		// why in TASK_HISTORY. That chain is the whole reason Snowflake made
+		// dbt errors query failures.
+		// THE TASK'S OWN WAREHOUSE, which is why Snowflake requires one here:
+		// "when you create a task that executes the EXECUTE DBT PROJECT
+		// command, you must specify a user-managed warehouse". dbt connects
+		// back as a client and a client needs a warehouse to run in.
+		//
+		// This passed session{} at first, which defaulted the profile to
+		// COMPUTE_WH -- a warehouse no deployment here creates. The statement
+		// worked when run directly and failed inside a task, for a reason the
+		// error never named: `dbt run failed: 2 total | 1 error | 1 skipped`.
+		// The parity probe caught it; the direct probe beside it was green.
+		if _, err := s.execDbtProject(session{Warehouse: t.Warehouse}, dbtKey(m[1]), m[2]); err != nil {
+			return engine.Result{}, err
+		}
+		return engine.Result{Dialect: "duckdb"}, nil
 	}
 	if strings.HasPrefix(strings.ToUpper(strings.TrimSpace(sqlText)), "COPY INTO") {
 		rewritten, err := s.rewriteCopy(sqlText)
@@ -299,7 +344,7 @@ func (s *Server) runOrder(order []*task, from string) error {
 	scheduled := time.Now().UTC()
 	for i, t := range order {
 		start := time.Now().UTC()
-		if _, err := s.execTaskBody(t.SQL); err != nil {
+		if _, err := s.execTaskBody(t, t.SQL); err != nil {
 			s.record(taskRun{
 				Name: taskKey(t.Name), State: "FAILED", QueryText: t.SQL,
 				ErrorMessage:  err.Error(),
