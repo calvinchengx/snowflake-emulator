@@ -325,7 +325,15 @@ func (s *Server) execTaskBody(t *task, sqlText string) (engine.Result, error) {
 		// worked when run directly and failed inside a task, for a reason the
 		// error never named: `dbt run failed: 2 total | 1 error | 1 skipped`.
 		// The parity probe caught it; the direct probe beside it was green.
-		if _, err := s.execDbtProject(session{Warehouse: t.Warehouse}, dbtKey(m[1]), m[2]); err != nil {
+		// A task body carries its own ENV_VARS, the same as the statement run
+		// by hand -- that is where a project's environment is overridden for a
+		// run, so a task that could not carry one could not build against
+		// anything but the project's defaults.
+		env, err := dbtEnvVars(m[2])
+		if err != nil {
+			return engine.Result{}, err
+		}
+		if _, err := s.execDbtProject(session{Warehouse: t.Warehouse}, dbtKey(m[1]), m[2], env); err != nil {
 			return engine.Result{}, err
 		}
 		return engine.Result{Dialect: "duckdb"}, nil

@@ -116,6 +116,7 @@ the same run.
 | A task body reads a stream |  | 🟢 |
 | EXECUTE TASK runs the stream read |  | 🟢 |
 | CREATE DBT PROJECT |  | 🟢 |
+| ENV_VARS on CREATE is refused, and says where it belongs | Snowflake puts a project's environment in its env.yml and lets EXECUTE DBT PROJECT override it for one run; there is no ENV_VARS on CREATE. Storing it there would have the statement a caller actually runs ignore it, with the configuration sitting in plain sight in SHOW DBT PROJECTS. | 🟢 |
 | An ENV_VARS key dbt would never see is refused | Snowflake requires ENV_VARS keys UPPERCASE and DBT_-prefixed. Accepting one dbt will never read is the silent kind of wrong: env_var() falls to its default and the models read the wrong thing with nothing failing. | 🟢 |
 | SHOW DBT PROJECTS |  | 🟢 |
 | EXECUTE DBT PROJECT | dbt runs in THIS image, on argv, the same way duckdb does -- no second service and no network hop between the statement and what executes it. The profile is generated under the name the PROJECT declares, so a project runs here without being edited to say an emulator-specific one. | 🟢 |
@@ -140,4 +141,4 @@ the same run.
 |---|---|---|
 | CREATE / SHOW / SUSPEND |  | 🟢 |
 
-_79 of 86 answered._
+_80 of 87 answered._

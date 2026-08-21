@@ -43,7 +43,6 @@ type dbtProject struct {
 	Name   string
 	Source string // as written: @~/sub, @my_stage/sub
 	Target string
-	Env    map[string]string
 }
 
 var (
@@ -89,24 +88,19 @@ func (s *Server) handleDbtProjectSQL(w http.ResponseWriter, sess session, sqlTex
 		if t := reDbtDefaultTarget.FindStringSubmatch(rest); t != nil {
 			p.Target = t[1]
 		}
-		if e := reDbtEnvVars.FindStringSubmatch(rest); e != nil {
-			p.Env = map[string]string{}
-			for _, kv := range reDbtEnvPair.FindAllStringSubmatch(e[1], -1) {
-				key := kv[1]
-				// REFUSED BY NAME, the way a real account does: Snowflake
-				// requires ENV_VARS keys to be UPPERCASE and DBT_-prefixed.
-				// Accepting `bronze_schema` here and having dbt never see it
-				// would be the silent kind of wrong -- env_var() would fall to
-				// its default and the models would read the wrong schema
-				// without anything failing.
-				if key != strings.ToUpper(key) || !strings.HasPrefix(key, "DBT_") {
-					writeFail(w, http.StatusOK, "002103", fmt.Sprintf(
-						"ENV_VARS key %q is not usable: Snowflake requires them "+
-							"UPPERCASE and prefixed DBT_", key))
-					return true
-				}
-				p.Env[key] = kv[2]
-			}
+		// ENV_VARS BELONGS ON EXECUTE, not here, and saying so is worth more
+		// than quietly accepting it. Snowflake puts a project's environment in
+		// its `env.yml` and lets `EXECUTE DBT PROJECT ... ENV_VARS = (...)`
+		// override for one run; there is no ENV_VARS on CREATE. Taking it here
+		// would store values that the statement a caller actually runs would
+		// then ignore -- an env_var() falling to its default with the
+		// configuration sitting right there in SHOW DBT PROJECTS.
+		if reDbtEnvVars.MatchString(rest) {
+			writeFail(w, http.StatusOK, "002104",
+				"ENV_VARS is not a CREATE DBT PROJECT parameter: put it on "+
+					"EXECUTE DBT PROJECT, which is where Snowflake overrides a "+
+					"project's environment for a run")
+			return true
 		}
 		s.mu.Lock()
 		if s.dbtProjects == nil {
@@ -147,7 +141,12 @@ func (s *Server) handleDbtProjectSQL(w http.ResponseWriter, sess session, sqlTex
 	}
 
 	if m := reExecDbtProject.FindStringSubmatch(trimmed); m != nil {
-		out, err := s.execDbtProject(sess, dbtKey(m[1]), m[2])
+		env, err := dbtEnvVars(m[2])
+		if err != nil {
+			writeFail(w, http.StatusOK, "002103", err.Error())
+			return true
+		}
+		out, err := s.execDbtProject(sess, dbtKey(m[1]), m[2], env)
 		if err != nil {
 			// A QUERY FAILURE, not a row saying FALSE. See the type comment.
 			writeFail(w, http.StatusOK, "002105", err.Error())
@@ -163,7 +162,33 @@ func (s *Server) handleDbtProjectSQL(w http.ResponseWriter, sess session, sqlTex
 
 // execDbtProject materialises the project out of its stage and runs dbt over
 // it, returning what dbt printed.
-func (s *Server) execDbtProject(sess session, name, rest string) (string, error) {
+// dbtEnvVars reads an ENV_VARS clause, refusing keys dbt would never see.
+//
+// Snowflake's rule, quoted because it is absolute: "Every key in env: and in
+// any override must be prefixed with DBT_ ... Every key must be UPPERCASE",
+// and "these rules are enforced on every run. If you break them, the run
+// fails." Accepting `contoso_silver_database` here would be the silent kind of
+// wrong -- env_var() falls to its default and the models read the wrong thing
+// with nothing failing -- and it would also let a project run here that a real
+// account refuses, which is the direction that ships.
+func dbtEnvVars(rest string) (map[string]string, error) {
+	e := reDbtEnvVars.FindStringSubmatch(rest)
+	if e == nil {
+		return nil, nil
+	}
+	env := map[string]string{}
+	for _, kv := range reDbtEnvPair.FindAllStringSubmatch(e[1], -1) {
+		key := kv[1]
+		if key != strings.ToUpper(key) || !strings.HasPrefix(key, "DBT_") {
+			return nil, fmt.Errorf("ENV_VARS key %q is not usable: Snowflake requires "+
+				"them UPPERCASE and prefixed DBT_", key)
+		}
+		env[key] = kv[2]
+	}
+	return env, nil
+}
+
+func (s *Server) execDbtProject(sess session, name, rest string, env map[string]string) (string, error) {
 	s.mu.Lock()
 	p, ok := s.dbtProjects[name]
 	s.mu.Unlock()
@@ -239,7 +264,7 @@ func (s *Server) execDbtProject(sess session, name, rest string) (string, error)
 	// The project's own ENV_VARS, which is how a dbt project on Snowflake gets
 	// an `env_var()` answered. Applied last so a project cannot be silently
 	// overridden by whatever this process happens to have in its environment.
-	for k, v := range p.Env {
+	for k, v := range env {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}
 	out, runErr := cmd.CombinedOutput()
