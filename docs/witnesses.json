@@ -393,6 +393,50 @@
       "go:TestATaskWithNoOptionClauseAtAll"
     ]
   },
+  "a-task-body-loads-from-a-stage": {
+    "section": "Orchestration",
+    "claim": "A task body loads from a stage",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "execute-task-runs-the-copy-into": {
+    "section": "Orchestration",
+    "claim": "EXECUTE TASK runs the COPY INTO",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "the-task-s-copy-into-actually-loaded": {
+    "section": "Orchestration",
+    "claim": "The task's COPY INTO actually loaded",
+    "witnesses": [
+      "ci:parity",
+      "go:TestATaskBodyIsASnowflakeStatement"
+    ]
+  },
+  "a-task-body-reads-a-stream": {
+    "section": "Orchestration",
+    "claim": "A task body reads a stream",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "execute-task-runs-the-stream-read": {
+    "section": "Orchestration",
+    "claim": "EXECUTE TASK runs the stream read",
+    "witnesses": [
+      "ci:parity"
+    ]
+  },
+  "the-task-s-stream-read-actually-inserted": {
+    "section": "Orchestration",
+    "claim": "The task's stream read actually inserted",
+    "witnesses": [
+      "ci:parity",
+      "go:TestATaskBodyIsASnowflakeStatement"
+    ]
+  },
   "create-stream": {
     "section": "Orchestration",
     "claim": "CREATE STREAM",

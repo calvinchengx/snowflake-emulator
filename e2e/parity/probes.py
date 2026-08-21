@@ -14,6 +14,14 @@ SETUP = [
     "CREATE OR REPLACE TABLE p_t (id INT, m DECIMAL(19,4), d DATE, arr VARIANT)",
     "INSERT INTO p_t VALUES (1, 1.5, DATE '2026-01-01', '[{\"sku\":\"A\"}]')",
     "CREATE OR REPLACE TABLE p_json (id INT, customer VARIANT)",
+    # For the task-body probes below. The stream is created BEFORE the rows are
+    # inserted, so it genuinely owes them -- a stream over an unchanged table
+    # would let the task probe pass by inserting nothing.
+    "CREATE OR REPLACE TABLE p_copy_out (n INT)",
+    "CREATE OR REPLACE TABLE p_src2 (id INT)",
+    "CREATE OR REPLACE STREAM p_stream2 ON TABLE p_src2",
+    "INSERT INTO p_src2 VALUES (1),(2)",
+    "CREATE OR REPLACE TABLE p_stream_out (id INT)",
 ]
 
 # (area, feature, statement)
@@ -133,7 +141,34 @@ PROBES = [
     ("Orchestration", "A manual task with a CTAS body",
      "CREATE TASK p_body AS CREATE OR REPLACE TABLE p_body_out AS SELECT 1 AS n"),
     ("Orchestration", "EXECUTE TASK runs the CTAS", "EXECUTE TASK p_body"),
-    ("Orchestration", "The CTAS body actually ran", "SELECT count(*) FROM p_body_out"),
+    # THE COUNT IS ASSERTED, not merely selected. Every probe here is judged on
+    # whether the STATEMENT succeeded, and `SELECT count(*) FROM t` succeeds
+    # just as well on nought rows -- so a probe named "actually ran" that only
+    # counts proves the TABLE exists, not that the work happened. The CASE
+    # casts a sentence to INT when the count is wrong, which duckdb refuses by
+    # name, so a wrong number fails the probe and says what it was. (A division
+    # by zero was the first idea and does NOT work: duckdb answers Infinity.)
+    ("Orchestration", "The CTAS body actually ran",
+     "SELECT CASE WHEN count(*) = 1 THEN 0 ELSE "
+     "CAST('the CTAS body did not run' AS INT) END AS ok FROM p_body_out"),
+    # A TASK BODY IS A SNOWFLAKE STATEMENT, not a duckdb one. The body used to
+    # go straight to the engine, so a stream reference was never expanded and
+    # COPY INTO was never rewritten -- both work outside a task, so the same
+    # text meant two different things depending on who ran it. Stream-driven
+    # CDC and stage loading are the two shapes a medallion is built from.
+    ("Orchestration", "A task body loads from a stage",
+     "CREATE TASK p_task_copy AS COPY INTO p_copy_out FROM '@~/parity.csv' "
+     "FILE_FORMAT = (TYPE = CSV SKIP_HEADER = 1)"),
+    ("Orchestration", "EXECUTE TASK runs the COPY INTO", "EXECUTE TASK p_task_copy"),
+    ("Orchestration", "The task's COPY INTO actually loaded",
+     "SELECT CASE WHEN count(*) = 2 THEN 0 ELSE "
+     "CAST('the task loaded the wrong number of rows' AS INT) END AS ok FROM p_copy_out"),
+    ("Orchestration", "A task body reads a stream",
+     "CREATE TASK p_task_stream AS INSERT INTO p_stream_out SELECT id FROM p_stream2"),
+    ("Orchestration", "EXECUTE TASK runs the stream read", "EXECUTE TASK p_task_stream"),
+    ("Orchestration", "The task's stream read actually inserted",
+     "SELECT CASE WHEN count(*) = 2 THEN 0 ELSE "
+     "CAST('the task inserted the wrong number of rows' AS INT) END AS ok FROM p_stream_out"),
     ("Orchestration", "CREATE STREAM", "CREATE STREAM p_stream ON TABLE p_t"),
     ("Orchestration", "Reading a stream", "SELECT count(*) FROM p_stream"),
     ("Orchestration", "SYSTEM$STREAM_HAS_DATA", "SELECT SYSTEM$STREAM_HAS_DATA('p_stream') AS has"),
@@ -148,6 +183,15 @@ PROBES = [
 # Snowflake in a way a consumer can see. Recorded here so a green probe is not
 # read as full fidelity.
 CAVEATS = {
+    "The task's COPY INTO actually loaded": (
+        "Counted from the table the task loaded into. The body used to go "
+        "straight to duckdb, which answers COPY INTO with a syntax error at "
+        "INTO -- while the identical statement outside a task loaded fine."
+    ),
+    "The task's stream read actually inserted": (
+        "Counted from the table the task inserted into. The body used to go "
+        "straight to duckdb, which has no table for a stream name at all."
+    ),
     "A manual task (no SCHEDULE, no AFTER)": (
         "The body is the whole statement after the task's own AS, including a "
         "body carrying its own AS -- a CREATE TABLE ... AS SELECT, which is "
@@ -234,6 +278,8 @@ CAVEATS = {
 # witnessed by the parity job, which is a real witness: it runs every
 # statement against the built image and fails if the answer changes.
 WITNESSES = {
+    "The task's COPY INTO actually loaded": ["ci:parity", "go:TestATaskBodyIsASnowflakeStatement"],
+    "The task's stream read actually inserted": ["ci:parity", "go:TestATaskBodyIsASnowflakeStatement"],
     "A manual task (no SCHEDULE, no AFTER)": ["ci:parity", "go:TestATaskWithNoOptionClauseAtAll"],
     "The CTAS body actually ran": ["ci:parity", "go:TestATaskWithNoOptionClauseAtAll"],
     "Seeded PAT": ["ci:e2e-sdk", "go:TestLoginRejectsDevAndEmpty"],

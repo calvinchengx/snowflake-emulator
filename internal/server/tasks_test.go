@@ -1,6 +1,13 @@
 package server
 
 import (
+	"bytes"
+	"encoding/json"
+	"github.com/calvinchengx/snowflake-emulator/internal/config"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -211,4 +218,125 @@ func TestACycleIsRefusedRatherThanRun(t *testing.T) {
 	if _, err := s.graphFrom("A"); err == nil {
 		t.Fatal("a cycle was accepted; running it would not stop")
 	}
+}
+
+// A TASK BODY IS A SNOWFLAKE STATEMENT, NOT A DUCKDB ONE.
+//
+// runOrder used to hand the body to engine.Exec directly, so everything this
+// emulator does to a statement before the engine sees it was skipped inside a
+// task: a stream reference was never expanded into the rows it owes, and
+// COPY INTO was never rewritten against the internal stage. Both work outside
+// a task, which is the whole point -- the same text meant two different things
+// depending on who ran it.
+//
+// Asserted as PAIRS, and on the EFFECT. A failure inside a task proves nothing
+// unless the same statement succeeds outside one, and "EXECUTE TASK succeeded"
+// proves nothing unless the rows are there: this repository has already been
+// bitten by a task that reported SUCCEEDED while running a different statement.
+func TestATaskBodyIsASnowflakeStatement(t *testing.T) {
+	dir := t.TempDir()
+	srv, err := New(config.Config{
+		DataDir:  dir,
+		StageDir: filepath.Join(dir, "stages"),
+		// A FILE, not :memory:. Each engine.Exec spawns its own duckdb, so an
+		// in-memory database would give every statement a fresh, empty one and
+		// the test would measure nothing.
+		DuckDB: filepath.Join(dir, "wh.duckdb"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok := login(t, srv)
+
+	run := func(t *testing.T, sqlText string) map[string]any {
+		t.Helper()
+		payload, _ := json.Marshal(map[string]any{"sqlText": sqlText})
+		req := httptest.NewRequest(http.MethodPost, "/queries/v1/query-request", bytes.NewReader(payload))
+		req.Header.Set("Authorization", `Snowflake Token="`+tok+`"`)
+		rec := httptest.NewRecorder()
+		srv.ServeHTTP(rec, req)
+		var out map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+			t.Fatalf("%s: %v", sqlText, err)
+		}
+		return out
+	}
+	mustRun := func(t *testing.T, sqlText string) {
+		t.Helper()
+		out := run(t, sqlText)
+		if ok, _ := out["success"].(bool); !ok {
+			t.Fatalf("%s\n  failed: %v", sqlText, out["message"])
+		}
+	}
+	// count reads the first cell back, so an assertion is about ROWS rather
+	// than about a statement having succeeded.
+	count := func(t *testing.T, table string) string {
+		t.Helper()
+		out := run(t, "SELECT count(*) AS n FROM "+table)
+		if ok, _ := out["success"].(bool); !ok {
+			t.Fatalf("reading %s back: %v", table, out["message"])
+		}
+		data, _ := out["data"].(map[string]any)
+		rows, _ := data["rowset"].([]any)
+		if len(rows) == 0 {
+			t.Fatalf("no rows counting %s: %v", table, data)
+		}
+		first, _ := rows[0].([]any)
+		if len(first) == 0 {
+			t.Fatalf("empty row counting %s: %v", table, data)
+		}
+		s, _ := first[0].(string)
+		return s
+	}
+
+	t.Run("a stream reference expands inside a task", func(t *testing.T) {
+		mustRun(t, "CREATE OR REPLACE TABLE src (id INT)")
+		mustRun(t, "INSERT INTO src VALUES (1),(2)")
+		mustRun(t, "CREATE OR REPLACE STREAM st ON TABLE src")
+		mustRun(t, "INSERT INTO src VALUES (3),(4)")
+		mustRun(t, "CREATE OR REPLACE TABLE sink (id INT)")
+
+		// Outside a task first: without this the failure below is unattributable.
+		mustRun(t, "INSERT INTO sink SELECT id FROM st")
+		if got := count(t, "sink"); got != "2" {
+			t.Fatalf("the stream owed 2 rows outside a task, got %s", got)
+		}
+
+		mustRun(t, "INSERT INTO src VALUES (5),(6)")
+		mustRun(t, "CREATE OR REPLACE TABLE sink2 (id INT)")
+		mustRun(t, "CREATE OR REPLACE TASK t_stream AS INSERT INTO sink2 SELECT id FROM st")
+		mustRun(t, "EXECUTE TASK t_stream")
+		if got := count(t, "sink2"); got != "2" {
+			t.Fatalf("the task read the stream and wrote %s rows, want 2 -- "+
+				"a task body that never expanded the stream cannot see it at all", got)
+		}
+	})
+
+	t.Run("COPY INTO rewrites inside a task", func(t *testing.T) {
+		stageDir := filepath.Join(dir, "stages")
+		if err := os.MkdirAll(stageDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		// Written straight into the stage directory: PUT is the driver's job
+		// and this test is about the task body, not the upload.
+		if err := os.WriteFile(filepath.Join(stageDir, "o.csv"),
+			[]byte("id,amount\n1,10.50\n2,20.25\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		const format = "FILE_FORMAT = (TYPE = CSV SKIP_HEADER = 1)"
+
+		mustRun(t, "CREATE OR REPLACE TABLE loaded (id INT, amount DECIMAL(19,4))")
+		mustRun(t, "COPY INTO loaded FROM '@~/o.csv' "+format)
+		if got := count(t, "loaded"); got != "2" {
+			t.Fatalf("COPY INTO loaded %s rows outside a task, want 2", got)
+		}
+
+		mustRun(t, "CREATE OR REPLACE TABLE loaded2 (id INT, amount DECIMAL(19,4))")
+		mustRun(t, "CREATE OR REPLACE TASK t_copy AS COPY INTO loaded2 FROM '@~/o.csv' "+format)
+		mustRun(t, "EXECUTE TASK t_copy")
+		if got := count(t, "loaded2"); got != "2" {
+			t.Fatalf("the task's COPY INTO loaded %s rows, want 2 -- a body handed "+
+				"straight to duckdb fails on INTO and loads nothing", got)
+		}
+	})
 }

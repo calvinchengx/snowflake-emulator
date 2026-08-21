@@ -21,6 +21,21 @@ jobs:
       # than accumulating until someone notices.
       - name: gofmt
         run: test -z "$(gofmt -l .)"
+      # `make test` needs the duckdb CLI, and this job said it did not.
+      # TestATaskBodyIsASnowflakeStatement proves a task body reaches the
+      # ENGINE correctly -- that a stream reference expands and COPY INTO is
+      # rewritten before duckdb sees them -- so it cannot be proved without
+      # duckdb. It passed locally only because a developer machine has it on
+      # PATH, which is the same way e2e-put learned this one job over.
+      #
+      # Installed rather than skipped when absent: a test that skips itself
+      # keeps the job green while proving nothing, and this one is the only
+      # thing standing between a task body and silently running the wrong
+      # statement.
+      - name: Install duckdb CLI
+        run: |
+          curl -fsSL -o /tmp/duckdb.zip https://github.com/duckdb/duckdb/releases/download/v1.2.2/duckdb_cli-linux-amd64.zip
+          sudo unzip -o /tmp/duckdb.zip -d /usr/local/bin
       - run: make test
       - uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d
         with:

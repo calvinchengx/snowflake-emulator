@@ -252,11 +252,54 @@ func (s *Server) runTaskGraph(w http.ResponseWriter, name, from string) {
 // minute was indistinguishable from one that succeeded every minute. That is
 // the shape this repository keeps finding, and history is only worth having if
 // the unattended path writes to it too.
+// execTaskBody runs a task's statement the way the HTTP path runs one.
+//
+// IT USED TO CALL engine.Exec DIRECTLY, which made a task body a DUCKDB
+// statement rather than a Snowflake one. Everything this emulator does to a
+// statement before the engine sees it -- expanding a stream reference into the
+// rows it owes, rewriting COPY INTO against an internal stage -- was skipped
+// for exactly the statements Snowflake tasks are most used with:
+//
+//	CREATE TASK t AS INSERT INTO sink SELECT id FROM my_stream
+//	  -> duckdb: Catalog Error: Table with name my_stream does not exist!
+//	CREATE TASK t AS COPY INTO tbl FROM '@~/dir/'
+//	  -> duckdb: Parser Error: syntax error at or near "INTO"
+//
+// Both statements work perfectly OUTSIDE a task, which is what made this worth
+// fixing rather than documenting: the same text meant two different things
+// depending on who ran it, and the task was the one place a consumer could not
+// see why.
+//
+// Stream-driven CDC and stage loading are the two shapes a medallion pipeline
+// is built from, so between them this covered most of what anyone would put in
+// a task here.
+func (s *Server) execTaskBody(sqlText string) (engine.Result, error) {
+	// The same order the HTTP path uses. Streams first, so the engine never
+	// sees a name it has no table for; the advance happens whatever the engine
+	// then makes of it, exactly as the deferred advance does over there.
+	expanded, err := s.expandStreams(sqlText)
+	if err != nil {
+		return engine.Result{}, err
+	}
+	if expanded != sqlText {
+		defer s.advanceStreams(sqlText)
+		sqlText = expanded
+	}
+	if strings.HasPrefix(strings.ToUpper(strings.TrimSpace(sqlText)), "COPY INTO") {
+		rewritten, err := s.rewriteCopy(sqlText)
+		if err != nil {
+			return engine.Result{}, err
+		}
+		sqlText = rewritten
+	}
+	return engine.Exec(s.Cfg.DuckDB, sqlText)
+}
+
 func (s *Server) runOrder(order []*task, from string) error {
 	scheduled := time.Now().UTC()
 	for i, t := range order {
 		start := time.Now().UTC()
-		if _, err := engine.Exec(s.Cfg.DuckDB, t.SQL); err != nil {
+		if _, err := s.execTaskBody(t.SQL); err != nil {
 			s.record(taskRun{
 				Name: taskKey(t.Name), State: "FAILED", QueryText: t.SQL,
 				ErrorMessage:  err.Error(),
