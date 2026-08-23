@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
     paths:
+      - 'site/**'
       - 'docs/**'
       - 'website/**'
       - 'pnpm-lock.yaml'
@@ -14,6 +15,7 @@ on:
   # is skipped below.
   pull_request:
     paths:
+      - 'site/**'
       - 'docs/**'
       - 'website/**'
       - 'pnpm-lock.yaml'
@@ -50,10 +52,29 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter snowflake-emulator-docs build
+      # The published site is the landing page at the root with the rendered
+      # docs beneath it, so `/` is the project's front door and every chapter
+      # lives under `/docs/`. The landing page needs no build: it is one
+      # self-contained file, and publishing it is a copy.
+      - name: Assemble the site
+        run: |
+          mkdir -p _site
+          cp site/index.html _site/index.html
+          cp -R website/dist _site/docs
+      # The page states counts that docs/parity.md measures. Nothing else
+      # watches a number written by hand.
+      - name: The landing page agrees with the parity table
+        run: python3 scripts/check_landing.py
+      # AFTER assembly, because the assembled tree is what is served. A link
+      # from the landing page into the docs is only resolvable once both
+      # halves sit in one directory, and the docs' base path moved when they
+      # did -- which is the change that 404s silently if it is got wrong.
+      - name: Every internal link resolves
+        run: python3 scripts/check_site_links.py --site _site
       - uses: actions/upload-pages-artifact@v5
         if: github.event_name != 'pull_request'
         with:
-          path: website/dist
+          path: _site
 
   deploy:
     name: Deploy to GitHub Pages
