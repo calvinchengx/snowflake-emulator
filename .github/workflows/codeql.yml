@@ -1,0 +1,80 @@
+# CodeQL — advanced (in-repo) setup.
+#
+# THIS REPOSITORY WAS NOT SCANNED AT ALL until this file. Its three sibling
+# emulators each carry a CodeQL workflow, and the API answered `no analysis
+# found` for this one — so its clean bill of health was the absence of a
+# scanner rather than the absence of findings. The alert that prompted this was
+# a real reflected-XSS in fabric-emulator, found only because fabric is
+# scanned.
+#
+# Scoped to FIRST-PARTY code:
+#   - go                    the emulator (root module)
+#   - python                python/snowflake-target, a package that ships to
+#                           users rather than a test driver
+#   - javascript-typescript the Astro docs website
+#   - actions               these workflows
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '31 7 * * 1' # weekly, Monday 07:31 UTC
+
+# Superseding a PR run is free. Superseding a main run is NOT: a cancelled
+# CodeQL job still uploads its SARIF, flagged `unsuccessful execution` with
+# zero results, and that errored analysis becomes the newest one for its
+# category. A sibling lost 11 of its first 43 main runs that way. So main runs
+# to completion; only PR pushes cancel.
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    # Explicit, because GitHub's 6-hour default makes a wedged run read as
+    # 'still pending' rather than failing.
+    timeout-minutes: 30
+    permissions:
+      security-events: write
+      packages: read
+      actions: read
+      contents: read
+    strategy:
+      fail-fast: false # one language's failure must not hide the others
+      matrix:
+        include:
+          - language: go
+            build-mode: autobuild
+          - language: python
+            build-mode: none
+          - language: javascript-typescript
+            build-mode: none
+          - language: actions
+            build-mode: none
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # Pin the Go toolchain so autobuild compiles the root module cleanly.
+      # (e2e/sdk/gosnowflake is a separate go.mod root and is excluded from the
+      # parent's `go build ./...`, so autobuild builds only the emulator.)
+      - if: matrix.language == 'go'
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4.37.7
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v4.37.7
+        with:
+          category: '/language:${{ matrix.language }}'
