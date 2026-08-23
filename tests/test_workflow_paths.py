@@ -80,6 +80,9 @@ def test_prose_alone_does_not_run_the_heavy_jobs():
         "docs/index.md",
         "website/astro.config.mjs",
         "website/src/content/docs/index.mdx",
+        # The landing page: guarded by check_landing.py in docs-site.yml,
+        # which the same change triggers.
+        "site/index.html",
     ]:
         for name in FILTERED:
             for event in ("push", "pull_request"):
