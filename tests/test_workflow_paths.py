@@ -140,3 +140,26 @@ def test_the_docs_site_still_builds_for_prose():
     patterns = _patterns("docs-site", "pull_request")
     for path in ("docs/05-sql-surface.md", "website/astro.config.mjs"):
         assert runs_for(patterns, path), f"docs-site would skip {path}"
+
+
+def test_every_network_download_retries():
+    """A transient reset must not fail a pull request about something else.
+
+    `curl: (35) Recv failure: Connection reset by peer` failed the dbt job on a
+    dependabot PR that only bumped an action SHA. The download is repeated in
+    eight jobs, so the chance of one run hitting it is eight times the chance
+    of one job doing so, and the resulting red says nothing about the change
+    under review.
+    """
+    ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    downloads = [
+        line for line in ci.splitlines()
+        if "curl" in line and "duckdb" in line or "duckdb/releases/download" in line
+    ]
+    assert downloads, "found no duckdb download at all -- the check proved nothing"
+
+    # The retry flags sit on the `curl` line; the URL is continued onto its own.
+    curls = [line for line in ci.splitlines() if line.strip().startswith("curl")]
+    assert curls, "found no curl invocation"
+    for line in curls:
+        assert "--retry" in line, f"a download without retries: {line.strip()}"

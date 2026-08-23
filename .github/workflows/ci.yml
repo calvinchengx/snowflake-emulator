@@ -85,8 +85,17 @@ jobs:
       # thing standing between a task body and silently running the wrong
       # statement.
       - name: Install duckdb CLI
+        # RETRIED, because a bare download is a coin flip eight times a run.
+        # `curl: (35) Recv failure: Connection reset by peer` failed the dbt
+        # job on a dependabot PR that only bumped an action SHA -- a red that
+        # said nothing about the change under review, on a step every job here
+        # repeats. --retry covers the transient statuses; --retry-connrefused
+        # and --retry-all-errors are what cover a reset mid-transfer, which is
+        # the one that actually happened.
         run: |
-          curl -fsSL -o /tmp/duckdb.zip https://github.com/duckdb/duckdb/releases/download/v1.2.2/duckdb_cli-linux-amd64.zip
+          curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused --retry-all-errors \
+            -o /tmp/duckdb.zip \
+            https://github.com/duckdb/duckdb/releases/download/v1.2.2/duckdb_cli-linux-amd64.zip
           sudo unzip -o /tmp/duckdb.zip -d /usr/local/bin
       - run: make test
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d
@@ -123,8 +132,17 @@ jobs:
         with:
           version: "0.12.3"
       - name: Install duckdb CLI
+        # RETRIED, because a bare download is a coin flip eight times a run.
+        # `curl: (35) Recv failure: Connection reset by peer` failed the dbt
+        # job on a dependabot PR that only bumped an action SHA -- a red that
+        # said nothing about the change under review, on a step every job here
+        # repeats. --retry covers the transient statuses; --retry-connrefused
+        # and --retry-all-errors are what cover a reset mid-transfer, which is
+        # the one that actually happened.
         run: |
-          curl -fsSL -o /tmp/duckdb.zip https://github.com/duckdb/duckdb/releases/download/v1.2.2/duckdb_cli-linux-amd64.zip
+          curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused --retry-all-errors \
+            -o /tmp/duckdb.zip \
+            https://github.com/duckdb/duckdb/releases/download/v1.2.2/duckdb_cli-linux-amd64.zip
           sudo unzip -o /tmp/duckdb.zip -d /usr/local/bin
       - run: uv run --frozen --group sql python e2e/sql/run.py
 
@@ -144,8 +162,17 @@ jobs:
       # that counts the rows run through the warehouse, which is duckdb. It
       # passed locally only because a developer machine has it on PATH.
       - name: Install duckdb CLI
+        # RETRIED, because a bare download is a coin flip eight times a run.
+        # `curl: (35) Recv failure: Connection reset by peer` failed the dbt
+        # job on a dependabot PR that only bumped an action SHA -- a red that
+        # said nothing about the change under review, on a step every job here
+        # repeats. --retry covers the transient statuses; --retry-connrefused
+        # and --retry-all-errors are what cover a reset mid-transfer, which is
+        # the one that actually happened.
         run: |
-          curl -fsSL -o /tmp/duckdb.zip https://github.com/duckdb/duckdb/releases/download/v1.2.2/duckdb_cli-linux-amd64.zip
+          curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused --retry-all-errors \
+            -o /tmp/duckdb.zip \
+            https://github.com/duckdb/duckdb/releases/download/v1.2.2/duckdb_cli-linux-amd64.zip
           sudo unzip -o /tmp/duckdb.zip -d /usr/local/bin
       - run: uv run --frozen --group sql python e2e/put/run.py
 
@@ -161,8 +188,17 @@ jobs:
         with:
           version: "0.12.3"
       - name: Install duckdb CLI
+        # RETRIED, because a bare download is a coin flip eight times a run.
+        # `curl: (35) Recv failure: Connection reset by peer` failed the dbt
+        # job on a dependabot PR that only bumped an action SHA -- a red that
+        # said nothing about the change under review, on a step every job here
+        # repeats. --retry covers the transient statuses; --retry-connrefused
+        # and --retry-all-errors are what cover a reset mid-transfer, which is
+        # the one that actually happened.
         run: |
-          curl -fsSL -o /tmp/duckdb.zip https://github.com/duckdb/duckdb/releases/download/v1.2.2/duckdb_cli-linux-amd64.zip
+          curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused --retry-all-errors \
+            -o /tmp/duckdb.zip \
+            https://github.com/duckdb/duckdb/releases/download/v1.2.2/duckdb_cli-linux-amd64.zip
           sudo unzip -o /tmp/duckdb.zip -d /usr/local/bin
       - run: uv run --frozen --group sql python e2e/tasks/run.py
 
@@ -178,8 +214,17 @@ jobs:
         with:
           version: "0.12.3"
       - name: Install duckdb CLI
+        # RETRIED, because a bare download is a coin flip eight times a run.
+        # `curl: (35) Recv failure: Connection reset by peer` failed the dbt
+        # job on a dependabot PR that only bumped an action SHA -- a red that
+        # said nothing about the change under review, on a step every job here
+        # repeats. --retry covers the transient statuses; --retry-connrefused
+        # and --retry-all-errors are what cover a reset mid-transfer, which is
+        # the one that actually happened.
         run: |
-          curl -fsSL -o /tmp/duckdb.zip https://github.com/duckdb/duckdb/releases/download/v1.2.2/duckdb_cli-linux-amd64.zip
+          curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused --retry-all-errors \
+            -o /tmp/duckdb.zip \
+            https://github.com/duckdb/duckdb/releases/download/v1.2.2/duckdb_cli-linux-amd64.zip
           sudo unzip -o /tmp/duckdb.zip -d /usr/local/bin
       - run: uv run --frozen --group sql python e2e/infer/run.py
 
@@ -195,8 +240,17 @@ jobs:
         with:
           version: "0.12.3"
       - name: Install duckdb CLI
+        # RETRIED, because a bare download is a coin flip eight times a run.
+        # `curl: (35) Recv failure: Connection reset by peer` failed the dbt
+        # job on a dependabot PR that only bumped an action SHA -- a red that
+        # said nothing about the change under review, on a step every job here
+        # repeats. --retry covers the transient statuses; --retry-connrefused
+        # and --retry-all-errors are what cover a reset mid-transfer, which is
+        # the one that actually happened.
         run: |
-          curl -fsSL -o /tmp/duckdb.zip https://github.com/duckdb/duckdb/releases/download/v1.2.2/duckdb_cli-linux-amd64.zip
+          curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused --retry-all-errors \
+            -o /tmp/duckdb.zip \
+            https://github.com/duckdb/duckdb/releases/download/v1.2.2/duckdb_cli-linux-amd64.zip
           sudo unzip -o /tmp/duckdb.zip -d /usr/local/bin
       - run: uv run --frozen --group sql python e2e/iceberg/run.py
 
@@ -212,8 +266,17 @@ jobs:
         with:
           version: "0.12.3"
       - name: Install duckdb CLI
+        # RETRIED, because a bare download is a coin flip eight times a run.
+        # `curl: (35) Recv failure: Connection reset by peer` failed the dbt
+        # job on a dependabot PR that only bumped an action SHA -- a red that
+        # said nothing about the change under review, on a step every job here
+        # repeats. --retry covers the transient statuses; --retry-connrefused
+        # and --retry-all-errors are what cover a reset mid-transfer, which is
+        # the one that actually happened.
         run: |
-          curl -fsSL -o /tmp/duckdb.zip https://github.com/duckdb/duckdb/releases/download/v1.2.2/duckdb_cli-linux-amd64.zip
+          curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused --retry-all-errors \
+            -o /tmp/duckdb.zip \
+            https://github.com/duckdb/duckdb/releases/download/v1.2.2/duckdb_cli-linux-amd64.zip
           sudo unzip -o /tmp/duckdb.zip -d /usr/local/bin
       - run: uv run --frozen --group dbt python e2e/dbt/run.py
 
@@ -226,8 +289,17 @@ jobs:
         with:
           version: "0.12.3"
       - name: Install duckdb CLI
+        # RETRIED, because a bare download is a coin flip eight times a run.
+        # `curl: (35) Recv failure: Connection reset by peer` failed the dbt
+        # job on a dependabot PR that only bumped an action SHA -- a red that
+        # said nothing about the change under review, on a step every job here
+        # repeats. --retry covers the transient statuses; --retry-connrefused
+        # and --retry-all-errors are what cover a reset mid-transfer, which is
+        # the one that actually happened.
         run: |
-          curl -fsSL -o /tmp/duckdb.zip https://github.com/duckdb/duckdb/releases/download/v1.2.2/duckdb_cli-linux-amd64.zip
+          curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused --retry-all-errors \
+            -o /tmp/duckdb.zip \
+            https://github.com/duckdb/duckdb/releases/download/v1.2.2/duckdb_cli-linux-amd64.zip
           sudo unzip -o /tmp/duckdb.zip -d /usr/local/bin
       - uses: actions/setup-go@v7
         with:
