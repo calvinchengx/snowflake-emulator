@@ -15,7 +15,11 @@ sql = ["snowflake-connector-python>=4.2,<5"]
 # stands in for: contoso-data-product's gold parsed on every other engine and
 # failed with 11 DbtYamlValidationError here.
 dbt = ["dbt-snowflake>=1.8,<2", "dbt-core>=1.9,<2"]
-target = ["snowflake-target", "pytest>=8.3,<10"]
+target = [
+    "snowflake-target",
+    "pytest>=8.3,<10",
+    "pyyaml>=6.0.3",
+]
 
 [tool.uv]
 package = false
