@@ -19,7 +19,14 @@ import pathlib
 import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-FILTERED = ["ci", "lint", "codeql", "security"]
+FILTERED = ["ci", "lint", "codeql"]
+
+# `security` is deliberately NOT in that list. gitleaks scans for secrets, and a
+# README with a real token pasted into an example is docs by path and a
+# credential by content -- so filtering prose out of the secret scan skips it on
+# exactly the commits most likely to carry one. It used to carry the same list
+# as the other three, which is what this pair of tests now prevents.
+UNFILTERED = ["security"]
 
 
 def _on(name: str) -> dict:
@@ -43,7 +50,14 @@ def _matches(pattern: str, path: str) -> bool:
 
 
 def runs_for(patterns: list[str], path: str) -> bool:
-    """Ordered evaluation: the LAST pattern that matches decides."""
+    """Ordered evaluation: the LAST pattern that matches decides.
+
+    No patterns at all means no filter, which means the workflow runs for
+    every path. Reading an empty list as "runs for nothing" is backwards, and
+    it is the reading that would let an unfiltered workflow look skipped.
+    """
+    if not patterns:
+        return True
     verdict = False
     for pat in patterns:
         if pat.startswith("!"):
@@ -163,3 +177,24 @@ def test_every_network_download_retries():
     assert curls, "found no curl invocation"
     for line in curls:
         assert "--retry" in line, f"a download without retries: {line.strip()}"
+
+
+def test_the_secret_scan_is_not_filtered():
+    """The one workflow that must see a prose-only commit.
+
+    A docs-only change is a perfectly good way to leak a secret. Filtering
+    `**.md` out of gitleaks would skip the scan on exactly the commits most
+    likely to carry a pasted token, and the weekly cron would not notice until
+    the credential had been public for days.
+
+    Asserted as the ABSENCE of a filter rather than as a pattern list, because
+    the failure being guarded against is someone adding one.
+    """
+    for name in UNFILTERED:
+        for event in ("push", "pull_request"):
+            assert not _patterns(name, event), (
+                f"{name}/{event} has a path filter; the secret scan must see every commit"
+            )
+            assert runs_for(_patterns(name, event), "README.md"), (
+                f"{name}/{event} would skip a README, where a pasted token lands"
+            )
