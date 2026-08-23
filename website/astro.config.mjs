@@ -17,6 +17,9 @@ export default defineConfig({
       components: {
         Head: './src/components/Head.astro',
         Search: './src/components/Search.astro',
+        // A back-link to the landing page beside the site title. The component
+        // explains why it cannot live in the header icon row or the sidebar.
+        SiteTitle: './src/components/SiteTitle.astro',
       },
       description:
         'A local Snowflake account emulator — official connectors on localhost, SQL on DuckDB, and everything else refused by name rather than quietly ignored.',
