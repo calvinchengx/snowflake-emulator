@@ -128,9 +128,12 @@ func TestAQuotedThreePartNameIsStrippedToo(t *testing.T) {
 		// Unquoted must keep working exactly as before.
 		{`create or replace view TEST_DB.PUBLIC.p_one as (select 1)`,
 			`create or replace view p_one as (select 1)`},
-		{`select * from TEST_DB.GOLD.fct`, `select * from fct`},
+		// CHANGED DELIBERATELY. This used to expect `fct` -- the schema
+		// thrown away with the database -- which is the flattening that made
+		// GOLD.orders and SILVER.orders one table.
+		{`select * from TEST_DB.GOLD.fct`, `select * from GOLD.fct`},
 	} {
-		got := rePublicDot.ReplaceAllString(reThreePart.ReplaceAllString(tc.in, ""), "")
+		got := stripDatabaseQualifier(tc.in, "TEST_DB")
 		if got != tc.want {
 			t.Errorf("%s\n  got  %s\n  want %s", tc.in, got, tc.want)
 		}
@@ -138,8 +141,87 @@ func TestAQuotedThreePartNameIsStrippedToo(t *testing.T) {
 
 	// The TABLE's own quotes must survive: consuming its opening quote would
 	// leave `P_ONE"` and turn a name into a syntax error.
-	got := reThreePart.ReplaceAllString(`drop table "A"."PUBLIC"."P_ONE"`, "")
+	got := stripDatabaseQualifier(`drop table "A"."PUBLIC"."P_ONE"`, "A")
 	if strings.Count(got, `"`)%2 != 0 {
 		t.Fatalf("unbalanced quotes after the strip: %s", got)
+	}
+}
+
+// The whitelist that was here, and the three defects hiding under it.
+//
+// `reThreePart` matched only PUBLIC, GOLD, SILVER and MAIN in the middle --
+// three of those this family's own names -- so any other schema fell through
+// to the engine as a catalog it has never heard of. Measured on the published
+// image (sha256:e68e1b63) before the fix: BRONZE, STAGING and ANALYTICS all
+// answered `Catalog with name TEST_DB does not exist!` while the four blessed
+// names worked.
+func TestAnySchemaResolvesNotJustTheFamilysFour(t *testing.T) {
+	for _, schema := range []string{
+		"PUBLIC", "GOLD", "SILVER", "MAIN", // the old whitelist
+		"BRONZE", "STAGING", "ANALYTICS", "raw", "dbt_ci", // and everything it forgot
+	} {
+		in := "create or replace view TEST_DB." + schema + ".m as (select 1)"
+		got := stripDatabaseQualifier(in, "TEST_DB")
+		if strings.Contains(strings.ToUpper(got), "TEST_DB") {
+			t.Errorf("schema %s: the database survived: %s", schema, got)
+		}
+	}
+}
+
+func TestTheSchemaSurvivesSoTwoSchemasAreTwoTables(t *testing.T) {
+	// THE DEFECT UNDER THE DEFECT. Stripping `db.schema.` flattened everything
+	// into one namespace, so TEST_DB.SILVER.orders and TEST_DB.GOLD.orders
+	// were the same table -- created both on the published image, selected
+	// from the silver one, and got the gold row back with no error at all.
+	silver := stripDatabaseQualifier("select * from TEST_DB.SILVER.orders", "TEST_DB")
+	gold := stripDatabaseQualifier("select * from TEST_DB.GOLD.orders", "TEST_DB")
+	if silver == gold {
+		t.Fatalf("two schemas still name one table: %s", silver)
+	}
+	if !strings.Contains(silver, "SILVER.orders") || !strings.Contains(gold, "GOLD.orders") {
+		t.Fatalf("the schema was lost:\n  %s\n  %s", silver, gold)
+	}
+}
+
+func TestThreePartAndTwoPartAreTheSameTable(t *testing.T) {
+	// `TEST_DB.GOLD.dual` used to be created in the default schema, so a later
+	// `SELECT FROM GOLD.dual` could not find it -- one table with two names
+	// that disagreed.
+	three := stripDatabaseQualifier("select n from TEST_DB.GOLD.dual", "TEST_DB")
+	two := stripDatabaseQualifier("select n from GOLD.dual", "TEST_DB")
+	if three != two {
+		t.Fatalf("the two spellings still disagree:\n  %s\n  %s", three, two)
+	}
+}
+
+func TestPublicStaysTheDefaultSchema(t *testing.T) {
+	// Snowflake's default schema is PUBLIC and duckdb's is main. Treating them
+	// as one concept is what leaves every table that already exists where it
+	// is; changing it would move them for no gain.
+	got := stripDatabaseQualifier("select * from TEST_DB.PUBLIC.orders", "TEST_DB")
+	if got != "select * from orders" {
+		t.Fatalf("PUBLIC must resolve to the default schema, got %s", got)
+	}
+}
+
+func TestOnlyTheSessionsOwnDatabaseIsStripped(t *testing.T) {
+	// A three-part name is `a.b.c`, and so is an ordinary struct access. The
+	// database check is what keeps `v.customer.email` intact.
+	for _, sql := range []string{
+		"select v.customer.email from t",
+		"select * from OTHER_DB.PUBLIC.t",
+	} {
+		if got := stripDatabaseQualifier(sql, "TEST_DB"); got != sql {
+			t.Errorf("%s was rewritten to %s", sql, got)
+		}
+	}
+}
+
+func TestALiteralIsDataNotSQL(t *testing.T) {
+	// Measured before the fix: `SELECT 'TEST_DB.PUBLIC.orders'` came back as
+	// `orders`. The rewrite was editing the answer, not the statement.
+	const sql = "select 'TEST_DB.PUBLIC.orders' as s, 'see TEST_DB.GOLD.fct' as note"
+	if got := stripDatabaseQualifier(sql, "TEST_DB"); got != sql {
+		t.Fatalf("a string literal was rewritten:\n  %s", got)
 	}
 }

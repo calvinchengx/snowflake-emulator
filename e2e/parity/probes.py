@@ -15,6 +15,14 @@ SETUP = [
     "INSERT INTO p_t VALUES (1, 1.5, DATE '2026-01-01', '[{\"sku\":\"A\"}]')",
     "CREATE OR REPLACE TABLE p_json (id INT, customer VARIANT)",
     "CREATE OR REPLACE TABLE p_prefix (n INT)",
+    # P_WAREHOUSING IS NOT A NAME THIS FAMILY USES, deliberately. Three-part
+    # names once resolved only for PUBLIC, GOLD, SILVER and MAIN, so every
+    # probe here passed while a project with any other schema could not run at
+    # all. A probe that only names schemas we happen to use proves nothing
+    # about the next one.
+    "CREATE SCHEMA IF NOT EXISTS P_WAREHOUSING",
+    "CREATE OR REPLACE TABLE P_WAREHOUSING.p_far (n INT)",
+    "INSERT INTO P_WAREHOUSING.p_far VALUES (7)",
     # For the task-body probes below. The stream is created BEFORE the rows are
     # inserted, so it genuinely owes them -- a stream over an unchanged table
     # would let the task probe pass by inserting nothing.
@@ -32,6 +40,12 @@ PROBES = [
      "SELECT current_warehouse(), current_database(), current_schema(), current_role()"),
 
     ("SQL", "SELECT, CTE, window", "WITH c AS (SELECT id, sum(m) OVER () AS s FROM p_t) SELECT * FROM c"),
+    ("SQL", "A three-part name in a schema this family does not use",
+     "SELECT n FROM TEST_DB.P_WAREHOUSING.p_far"),
+    ("SQL", "Two-part and three-part name the same table",
+     "SELECT (SELECT n FROM TEST_DB.P_WAREHOUSING.p_far) = (SELECT n FROM P_WAREHOUSING.p_far) AS same"),
+    ("SQL", "A qualified name inside a string literal is data",
+     "SELECT 'TEST_DB.PUBLIC.p_t' AS s"),
     ("SQL", "QUALIFY", "SELECT id FROM p_t QUALIFY row_number() OVER (ORDER BY id) = 1"),
     ("SQL", "TRY_CAST", "SELECT TRY_CAST('x' AS INT) AS v"),
     ("SQL", "IFF / NVL / NVL2 / ZEROIFNULL", "SELECT IFF(1=1, NVL(NULL, 1), 2) AS a, NVL2(NULL,'x','y') AS b, ZEROIFNULL(NULL) AS c"),
@@ -383,6 +397,13 @@ WITNESSES = {
     "SELECT, CTE, window": ["ci:e2e-sql"],
     "COPY INTO from an internal stage": ["ci:e2e-sql"],
     "COPY INTO with a named format": ["ci:e2e-sql"],
+    "A three-part name in a schema this family does not use":
+        ["ci:e2e-dbt", "go:TestAnySchemaResolvesNotJustTheFamilysFour"],
+    "Two-part and three-part name the same table":
+        ["go:TestThreePartAndTwoPartAreTheSameTable",
+         "go:TestTheSchemaSurvivesSoTwoSchemasAreTwoTables"],
+    "A qualified name inside a string literal is data":
+        ["go:TestALiteralIsDataNotSQL"],
     # The Go tests prove it is a relation and that it unions by name. NEITHER
     # proves the loop the feature exists for: that a CREATE TABLE built from
     # the answer then LOADS the file it described. e2e-infer does.
