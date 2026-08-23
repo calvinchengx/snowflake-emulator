@@ -26,6 +26,9 @@ the same run.
 | Feature | Detail | Status |
 |---|---|---|
 | SELECT, CTE, window |  | 🟢 |
+| A three-part name in a schema this family does not use |  | 🟢 |
+| Two-part and three-part name the same table |  | 🟢 |
+| A qualified name inside a string literal is data |  | 🟢 |
 | QUALIFY |  | 🟢 |
 | TRY_CAST |  | 🟢 |
 | IFF / NVL / NVL2 / ZEROIFNULL |  | 🟢 |
@@ -143,4 +146,4 @@ the same run.
 |---|---|---|
 | CREATE / SHOW / SUSPEND |  | 🟢 |
 
-_82 of 89 answered._
+_85 of 92 answered._

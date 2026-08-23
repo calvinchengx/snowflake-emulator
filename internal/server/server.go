@@ -323,7 +323,7 @@ func (s *Server) runSQL(w http.ResponseWriter, tok string, sess session, sqlText
 		writeFail(w, http.StatusBadRequest, "000904", "empty statement")
 		return
 	}
-	if s.handleCatalogSQL(w, sqlText) {
+	if s.handleCatalogSQL(w, sess, sqlText) {
 		return
 	}
 	rewritten, extra, special, rerr := rewriteSQL(sqlText, sess)
@@ -515,7 +515,7 @@ var (
 	reDescribeTbl   = regexp.MustCompile(`(?i)^DESC(?:RIBE)?\s+TABLE\s+(.+)`)
 )
 
-func (s *Server) handleCatalogSQL(w http.ResponseWriter, sqlText string) bool {
+func (s *Server) handleCatalogSQL(w http.ResponseWriter, sess session, sqlText string) bool {
 	trimmed := strings.TrimSpace(sqlText)
 	if reShowSchemas.MatchString(trimmed) {
 		writeQueryOK(w, []string{"name"}, [][]string{{"PUBLIC"}, {"MAIN"}, {"GOLD"}, {"INFORMATION_SCHEMA"}}, "duckdb")
@@ -536,8 +536,15 @@ func (s *Server) handleCatalogSQL(w http.ResponseWriter, sqlText string) bool {
 		}
 		// information_schema, not SHOW TABLES, because the TYPE matters and
 		// SHOW TABLES does not carry one. See the `kind` column below.
+		// THE SCHEMA IS READ, NOT ASSUMED. It used to be the constant "PUBLIC"
+		// for every row, which was accidentally true only while every
+		// three-part name was flattened into one schema. Now that
+		// `TEST_DB.GOLD.orders` really lives in GOLD, a listing that calls it
+		// PUBLIC tells dbt to drop and rebuild a relation that is not there --
+		// measured: two different `ORDERS` tables both reported as PUBLIC.
 		res, err := engine.Exec(s.Cfg.DuckDB,
-			"SELECT table_name AS name, table_type AS kind FROM information_schema.tables")
+			"SELECT table_name AS name, table_type AS kind, table_schema AS schema "+
+				"FROM information_schema.tables")
 		if err != nil {
 			writeFail(w, http.StatusOK, "002001", err.Error())
 			return true
@@ -547,6 +554,7 @@ func (s *Server) handleCatalogSQL(w http.ResponseWriter, sqlText string) bool {
 		// SHOW TABLES answers one column called `name` either way.
 		at := columnAt(res.Columns, "name")
 		kindAt := columnAt(res.Columns, "kind")
+		schemaAt := columnAt(res.Columns, "schema")
 		rows := make([][]string, 0, len(res.Rows))
 		for _, r := range res.Rows {
 			name := cell(r, at)
@@ -579,7 +587,7 @@ func (s *Server) handleCatalogSQL(w http.ResponseWriter, sqlText string) bool {
 			if strings.EqualFold(cell(r, kindAt), "VIEW") {
 				kind = "VIEW"
 			}
-			rows = append(rows, []string{"TEST_DB", "PUBLIC", strings.ToUpper(name), kind, "N", "N"})
+			rows = append(rows, []string{"TEST_DB", snowflakeSchema(cell(r, schemaAt)), strings.ToUpper(name), kind, "N", "N"})
 		}
 		writeQueryOK(w, []string{"database_name", "schema_name", "name", "kind", "is_dynamic", "is_iceberg"}, rows, "duckdb")
 		return true
@@ -590,8 +598,12 @@ func (s *Server) handleCatalogSQL(w http.ResponseWriter, sqlText string) bool {
 			return true
 		}
 		table := strings.Trim(strings.TrimSpace(m[1]), `";`)
-		table = reThreePart.ReplaceAllString(table, "")
-		table = rePublicDot.ReplaceAllString(table, "")
+		// THE SAME STRIP AS EVERY OTHER STATEMENT. This path had its own copy
+		// of the two expressions, so it inherited the whitelist -- and would
+		// have kept it had only rewriteSQL been fixed. DESCRIBE is how dbt
+		// reflects a relation's columns, so a schema outside the four names
+		// failed here too.
+		table = stripDatabaseQualifier(table, sess.Database)
 		res, err := engine.Exec(s.Cfg.DuckDB, "DESCRIBE "+table)
 		if err != nil {
 			writeFail(w, http.StatusOK, "002001", err.Error())
@@ -1027,4 +1039,18 @@ func renderTemporal(kind, value string) string {
 		return fmt.Sprintf("%d.%06d", secs, t.Nanosecond()/1000)
 	}
 	return value
+}
+
+// snowflakeSchema reports duckdb's default schema under Snowflake's name.
+//
+// `main` and `PUBLIC` are the same idea -- the schema you get when you did not
+// pick one -- and `stripDatabaseQualifier` maps PUBLIC onto main on the way in,
+// so this maps it back on the way out. Without the pair, a table created as
+// TEST_DB.PUBLIC.t would be listed as living in MAIN, and dbt would look for
+// it where it is not.
+func snowflakeSchema(duckSchema string) string {
+	if duckSchema == "" || strings.EqualFold(duckSchema, "main") {
+		return "PUBLIC"
+	}
+	return strings.ToUpper(duckSchema)
 }

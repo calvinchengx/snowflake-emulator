@@ -50,6 +50,33 @@ Plus [stages](06-stages-and-copy.md),
 [semi-structured](07-semi-structured.md), and
 [tasks and streams](08-tasks-and-streams.md).
 
+## Three-part names, and where a schema really is
+
+`TEST_DB` is a fiction — the engine has no such catalog — so the database
+qualifier is removed before a statement reaches it. Two things about how:
+
+**Only the session's own database is removed**, and only from a three-part
+name. `TEST_DB.GOLD.orders` becomes `GOLD.orders`; `OTHER_DB.PUBLIC.t` is left
+whole, so the engine can say plainly that `OTHER_DB` does not exist rather than
+answering about a table that was never asked for. A struct access is `a.b.c`
+too, and the database test is what keeps `v.customer.email` intact.
+
+**The schema survives.** Every schema used to be flattened into the default
+one, which meant `TEST_DB.SILVER.orders` and `TEST_DB.GOLD.orders` were a
+single table — selecting from the silver one returned the gold row, with no
+error anywhere. They are two tables now, and `GOLD.orders` names the same one
+as `TEST_DB.GOLD.orders`, as it would on an account.
+
+`PUBLIC` is the exception, and deliberately: Snowflake's default schema is
+`PUBLIC` and the engine's is `main`, so the two are treated as one idea.
+`SHOW OBJECTS` maps it back, reporting `PUBLIC` for anything in the default
+schema and the real name for anything else.
+
+Any schema works. It was once a list of four — `PUBLIC`, `GOLD`, `SILVER`,
+`MAIN`, three of them this family's own names — and a project whose models
+lived in `bronze` or `staging` could not run here at all, for a reason its
+author had no way to see.
+
 ## `DATEADD`, and one honest limit
 
 `DATEADD(day | week | hour | minute | second, n, d)` works and keeps the type

@@ -23,6 +23,9 @@ HERE = Path(__file__).resolve().parent
 HOST = "127.0.0.1"
 PORT = 18483
 
+# A schema name no part of this family uses. See the second dbt run below.
+OTHER_SCHEMA = "DBT_CI"
+
 
 def wait_http(url: str, timeout: float = 30.0) -> None:
     deadline = time.time() + timeout
@@ -85,25 +88,29 @@ def main() -> int:
         pat = (data_dir / "admin.pat").read_text().strip()
         api(pat, "CREATE WAREHOUSE dbt_wh")
         profiles = data_dir / "profiles.yml"
-        profiles.write_text(
-            "sf_e2e:\n"
-            "  target: emulator\n"
-            "  outputs:\n"
-            "    emulator:\n"
-            "      type: snowflake\n"
-            "      account: test\n"
-            "      user: admin\n"
-            "      password: " + pat + "\n"
-            "      host: 127.0.0.1\n"
-            "      port: " + str(PORT) + "\n"
-            "      protocol: http\n"
-            "      warehouse: dbt_wh\n"
-            "      database: TEST_DB\n"
-            "      schema: PUBLIC\n"
-            "      insecure_mode: true\n"
-            "      threads: 1\n",
-            encoding="utf-8",
-        )
+
+        def write_profile(schema: str) -> None:
+            profiles.write_text(
+                "sf_e2e:\n"
+                "  target: emulator\n"
+                "  outputs:\n"
+                "    emulator:\n"
+                "      type: snowflake\n"
+                "      account: test\n"
+                "      user: admin\n"
+                "      password: " + pat + "\n"
+                "      host: 127.0.0.1\n"
+                "      port: " + str(PORT) + "\n"
+                "      protocol: http\n"
+                "      warehouse: dbt_wh\n"
+                "      database: TEST_DB\n"
+                "      schema: " + schema + "\n"
+                "      insecure_mode: true\n"
+                "      threads: 1\n",
+                encoding="utf-8",
+            )
+
+        write_profile("PUBLIC")
         if not refused("not-a-real-token"):
             raise SystemExit("a bad token reached the warehouse")
         print("   bad token refused")
@@ -116,6 +123,22 @@ def main() -> int:
         )
         if r.returncode != 0:
             raise SystemExit("dbt run failed")
+
+        # A SCHEMA THIS FAMILY DOES NOT USE, and that is the whole point of it.
+        # Three-part names once resolved only for PUBLIC, GOLD, SILVER and
+        # MAIN -- a whitelist whose middle three are this repository's own
+        # medallion names -- so every test passed while `TEST_DB.BRONZE.t`
+        # answered `Catalog with name TEST_DB does not exist!`. A probe that
+        # only ever names a schema we happen to use cannot catch the next one
+        # of those. DBT_CI is deliberately a name nothing here relies on.
+        write_profile(OTHER_SCHEMA)
+        r = subprocess.run(
+            ["dbt", "run", "--project-dir", str(HERE / "project"), "--profiles-dir", str(data_dir),
+             "--target", "emulator"],
+            cwd=ROOT, env=env,
+        )
+        if r.returncode != 0:
+            raise SystemExit(f"dbt run failed against schema {OTHER_SCHEMA}")
 
         # Stop the emulator before reading: DuckDB is single-writer, and a
         # confirmer that needed the writer alive would not be independent.
@@ -140,8 +163,23 @@ def main() -> int:
             if got != want:
                 raise SystemExit(f"{model} holds {got}, want {want}")
 
+        # THE SCHEMA IS PART OF THE CLAIM. Reading `main` alone would pass just
+        # as happily if both runs had been flattened into one namespace, which
+        # is exactly the defect that made TEST_DB.GOLD.orders and
+        # TEST_DB.SILVER.orders a single table.
+        other = duckdb_rows(
+            db,
+            "select table_name from information_schema.tables "
+            f"where lower(table_schema) = '{OTHER_SCHEMA.lower()}' order by table_name",
+        )
+        for model in ("one", "two"):
+            if model not in other:
+                raise SystemExit(
+                    f"{model} is not in schema {OTHER_SCHEMA}: {other} -- a non-default "
+                    "schema was flattened away")
         print(f"   duckdb confirms {listed} with id=1, emulator stopped")
-        print("e2e-dbt: dbt run one + two, confirmed by duckdb")
+        print(f"   and {other} really live in {OTHER_SCHEMA}, not in main")
+        print("e2e-dbt: dbt run one + two in PUBLIC and in " + OTHER_SCHEMA)
         return 0
     finally:
         if proc is not None:

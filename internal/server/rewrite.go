@@ -32,8 +32,25 @@ var (
 	// `"TEST_DB"."PUBLIC".` from the above leaves `"P_DBT_ONE"`, still a
 	// balanced quoted identifier. Consuming the opening quote as well would
 	// leave `P_DBT_ONE"` and turn a name into a syntax error.
-	reThreePart = regexp.MustCompile(`(?i)"?\b[A-Za-z0-9_$]+\b"?\."?(PUBLIC|GOLD|SILVER|MAIN)"?\.`)
-	rePublicDot = regexp.MustCompile(`(?i)"?\bPUBLIC\b"?\.`)
+	// THE MIDDLE PART IS NOT A WHITELIST ANY MORE. It used to be
+	// `(PUBLIC|GOLD|SILVER|MAIN)` -- four names, three of them this family's
+	// own -- so `TEST_DB.BRONZE.t` fell straight through to the engine and
+	// came back `Catalog with name TEST_DB does not exist!`. Which schema
+	// names a project happens to use is not something its author would think
+	// to check, and dbt-snowflake emits a three-part name for every model.
+	//
+	// Only the DATABASE is removed now, and only when it is the session's own.
+	// Matching any leading identifier would eat the first part of an ordinary
+	// struct access -- `v.customer.email` is `a.b.c` too -- and the session
+	// database is never empty (it defaults to TEST_DB), so the narrow test
+	// costs nothing.
+	reThreePart = regexp.MustCompile(`(?i)("?\b[A-Za-z0-9_$]+\b"?)\.("?[A-Za-z0-9_$]+"?\.)`)
+	// The optional leading group is what stops PUBLIC being stripped out of
+	// ANOTHER database's name: with the session on TEST_DB, `OTHER_DB.PUBLIC.t`
+	// must stay whole, or it becomes `OTHER_DB.t` -- a table in a catalog that
+	// does not exist, which is a worse error than the honest one and points at
+	// the wrong part of the name.
+	rePublicDot = regexp.MustCompile(`(?i)("?[A-Za-z0-9_$]+"?\.)?("?\bPUBLIC\b"?\.)`)
 )
 
 func rewriteSQL(sql string, sess session) (string, string, bool, error) {
@@ -62,8 +79,7 @@ func rewriteSQL(sql string, sess session) (string, string, bool, error) {
 			out = fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", name)
 		}
 	}
-	out = reThreePart.ReplaceAllString(out, "")
-	out = rePublicDot.ReplaceAllString(out, "")
+	out = stripDatabaseQualifier(out, sess.Database)
 	out = rewriteCurrentFns(out, sess)
 	out = rewriteDateParts(out)
 	out = rewriteVariantTypes(out)
@@ -240,3 +256,50 @@ func codeRegions(sql string) []region {
 	}
 	return out
 }
+
+// stripDatabaseQualifier turns `db.schema.table` into `schema.table`, and then
+// the DEFAULT schema into nothing at all.
+//
+// WHAT CHANGED AND WHY IT MATTERS MORE THAN THE WHITELIST. Removing the whole
+// `db.schema.` prefix flattened every schema into duckdb's default one, so
+// TEST_DB.SILVER.orders and TEST_DB.GOLD.orders were ONE TABLE. Measured on
+// the published image: creating both and then selecting from the silver one
+// returned the gold row, with no error anywhere. Two schemas, one table, a
+// wrong answer reported as success -- which is the defect shape this
+// repository keeps meeting, and it was hiding underneath a narrower bug.
+//
+// It also made a name disagree with itself: `TEST_DB.GOLD.dual` was created in
+// the default schema, so `SELECT FROM GOLD.dual` afterwards could not find it.
+// Keeping the schema makes the two spellings the same table, as they are on an
+// account.
+//
+// PUBLIC STILL BECOMES THE DEFAULT SCHEMA, deliberately. Snowflake's default
+// schema is PUBLIC and duckdb's is main; treating them as the same concept is
+// what keeps every table that already exists where it is. A schema that is not
+// the default now resolves to a real schema of that name -- which does move
+// tables created under GOLD or SILVER, and is the point.
+//
+// OUTSIDE LITERALS, which the old form was not: `SELECT 'TEST_DB.PUBLIC.orders'`
+// came back as `orders`. A rewrite that edits data rather than SQL is wrong
+// however good its intentions, and a string is data.
+func stripDatabaseQualifier(sql, db string) string {
+	return outsideLiterals(sql, func(s string) string {
+		if db != "" {
+			s = reThreePart.ReplaceAllStringFunc(s, func(m string) string {
+				parts := reThreePart.FindStringSubmatch(m)
+				if !strings.EqualFold(unquoteIdent(parts[1]), db) {
+					return m
+				}
+				return parts[2]
+			})
+		}
+		return rePublicDot.ReplaceAllStringFunc(s, func(m string) string {
+			if parts := rePublicDot.FindStringSubmatch(m); parts[1] != "" {
+				return m // qualified by something else: not ours to touch
+			}
+			return ""
+		})
+	})
+}
+
+func unquoteIdent(s string) string { return strings.Trim(strings.TrimSpace(s), `"`) }

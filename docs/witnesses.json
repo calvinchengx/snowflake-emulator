@@ -21,6 +21,29 @@
       "ci:e2e-sql"
     ]
   },
+  "a-three-part-name-in-a-schema-this-family-does-not-use": {
+    "section": "SQL",
+    "claim": "A three-part name in a schema this family does not use",
+    "witnesses": [
+      "ci:e2e-dbt",
+      "go:TestAnySchemaResolvesNotJustTheFamilysFour"
+    ]
+  },
+  "two-part-and-three-part-name-the-same-table": {
+    "section": "SQL",
+    "claim": "Two-part and three-part name the same table",
+    "witnesses": [
+      "go:TestThreePartAndTwoPartAreTheSameTable",
+      "go:TestTheSchemaSurvivesSoTwoSchemasAreTwoTables"
+    ]
+  },
+  "a-qualified-name-inside-a-string-literal-is-data": {
+    "section": "SQL",
+    "claim": "A qualified name inside a string literal is data",
+    "witnesses": [
+      "go:TestALiteralIsDataNotSQL"
+    ]
+  },
   "qualify": {
     "section": "SQL",
     "claim": "QUALIFY",
