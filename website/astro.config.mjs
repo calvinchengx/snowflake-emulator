@@ -1,10 +1,13 @@
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 import { remarkMermaid } from './plugins/remark-mermaid.mjs';
+import { BASE } from './base.mjs';
 
 export default defineConfig({
   site: 'https://calvinchengx.github.io',
-  base: '/snowflake-emulator/',
+  // The docs moved down a level so the root can be a landing page.
+  // See base.mjs -- three files need this string and they must agree.
+  base: BASE,
   markdown: {
     remarkPlugins: [remarkMermaid],
   },

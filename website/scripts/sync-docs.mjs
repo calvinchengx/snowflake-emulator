@@ -8,7 +8,8 @@ const here = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(here, '..', '..');
 const DOCS_SRC = join(REPO_ROOT, 'docs');
 const OUT = join(here, '..', 'src', 'content', 'docs');
-export const BASE = '/snowflake-emulator/';
+export { BASE } from '../base.mjs';
+import { BASE } from '../base.mjs';
 const REPO = 'https://github.com/calvinchengx/snowflake-emulator';
 
 const PARITY = collectParity(REPO_ROOT);

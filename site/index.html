@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Snowflake Emulator — a Snowflake account on localhost</title>
+<meta name="description" content="Official Snowflake connectors and unmodified dbt-snowflake against a local account. SQL runs on DuckDB, and anything the emulator cannot do is refused by name rather than quietly ignored.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>❄</text></svg>">
+<style>
+:root{
+  --bg:#fbfbfa; --panel:#fff; --ink:#16181d; --muted:#5c6270; --line:#e3e5e9;
+  --accent:#1f6fb2; --accent-soft:#e8f1f9;
+  --yes:#0f6f4c; --yes-bg:#e6f3ee;
+  --no:#8a3a3a; --no-bg:#fbecec;
+  --code:#f4f5f7; --radius:14px;
+  --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){
+  :root{--bg:#101216;--panel:#171a20;--ink:#e8eaee;--muted:#9aa2b1;--line:#262a33;
+        --accent:#5aa9e6;--accent-soft:#132634;--yes:#4fbf94;--yes-bg:#122b23;
+        --no:#e08585;--no-bg:#2e1919;--code:#1c2028;}
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);line-height:1.6;-webkit-font-smoothing:antialiased}
+.wrap{max-width:860px;margin:0 auto;padding:0 24px}
+header{padding:72px 0 40px}
+h1{font-size:clamp(2rem,5vw,2.9rem);line-height:1.15;margin:0 0 14px;letter-spacing:-.02em}
+.tag{color:var(--muted);font-size:1.12rem;margin:0 0 26px;max-width:62ch}
+.pills{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:26px}
+.pill{font-size:.8rem;padding:4px 11px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
+.pill.now{background:var(--accent-soft);color:var(--accent);border-color:transparent;font-weight:600}
+.cta{display:flex;flex-wrap:wrap;gap:12px}
+.btn{display:inline-block;padding:11px 20px;border-radius:10px;text-decoration:none;font-weight:600;font-size:.95rem}
+.btn.primary{background:var(--accent);color:#fff}
+.btn.ghost{border:1px solid var(--line);color:var(--ink)}
+section{padding:34px 0;border-top:1px solid var(--line)}
+h2{font-size:1.35rem;margin:0 0 16px;letter-spacing:-.01em}
+p{margin:0 0 16px}
+.lead{font-size:1.05rem}
+ul{margin:0 0 16px;padding-left:20px}
+li{margin-bottom:9px}
+a{color:var(--accent)}
+code{font-family:var(--mono);font-size:.9em;background:var(--code);padding:2px 6px;border-radius:6px}
+pre{background:var(--code);padding:16px 18px;border-radius:var(--radius);overflow-x:auto;margin:0 0 16px}
+pre code{background:none;padding:0;font-size:.86rem;line-height:1.55}
+.counts{display:flex;flex-wrap:wrap;gap:12px;margin:0 0 18px}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px 18px;min-width:150px}
+.stat b{display:block;font-size:1.7rem;line-height:1.1;letter-spacing:-.02em}
+.stat span{color:var(--muted);font-size:.85rem}
+.stat.yes b{color:var(--yes)} .stat.no b{color:var(--no)}
+.refused{display:flex;flex-wrap:wrap;gap:7px;margin:0 0 16px}
+.refused code{background:var(--no-bg);color:var(--no)}
+.note{background:var(--accent-soft);border-radius:var(--radius);padding:18px 20px;margin:0 0 16px}
+footer{border-top:1px solid var(--line);margin-top:20px;padding:26px 0 60px;color:var(--muted);font-size:.9rem}
+footer a{color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+<h1>A Snowflake account, on localhost.</h1>
+<p class="tag">The official connectors and an unmodified <code>dbt-snowflake</code> point at <code>127.0.0.1</code> and do not know the difference. SQL runs on DuckDB. Anything this cannot do is refused <em>by name</em> — never quietly ignored.</p>
+<div class="pills">
+<span class="pill now">v0.3.2</span>
+<span class="pill">DuckDB 1.2.2</span>
+<span class="pill">multi-arch image</span>
+<span class="pill">Apache-2.0</span>
+</div>
+<div class="cta">
+<a class="btn primary" href="docs/">Read the docs</a>
+<a class="btn ghost" href="https://github.com/calvinchengx/snowflake-emulator">GitHub</a>
+<a class="btn ghost" href="docs/parity/">What is answered</a>
+</div>
+</header>
+
+<section>
+<h2>Refusal is the feature</h2>
+<p class="lead">An emulator that answers <code>ok</code> to something it did not do is worse than one that answers nothing. Eighteen constructs here once did exactly that — a status of <code>ok</code>, no rows, no error, and nothing to tell you which.</p>
+<p>So the rule is that a statement a real account accepts is either <b>answered</b> or <b>refused by name, with the reason</b>. A gap you can read is a gap you can plan around.</p>
+<div class="counts">
+<div class="stat yes"><b data-parity-answered>85</b><span>answered</span></div>
+<div class="stat no"><b data-parity-refused>7</b><span>refused, by name</span></div>
+<div class="stat"><b data-parity-total>92</b><span>statements measured</span></div>
+</div>
+<p>Every one of those rows is run against the image this repository builds, and the table is regenerated in CI — a job fails if the published parity page disagrees with what the emulator actually answers. It is measured, not written.</p>
+</section>
+
+<section>
+<h2>What it will not do</h2>
+<div class="refused">
+<code>MERGE</code><code>OBJECT_CONSTRUCT</code><code>REMOVE</code><code>Time Travel</code><code>CLONE</code><code>GRANT / roles</code><code>Stored procedures</code>
+</div>
+<p>Some are next; some never will be. <code>GRANT</code> is refused on purpose — an access model that is accepted and not enforced is worse than one that is absent, because you would test against it. Time Travel and  need a versioned store the engine does not have. The <a href="docs/12-roadmap/">roadmap</a> says which is which, and why.</p>
+</section>
+
+<section>
+<h2>Start</h2>
+<pre><code>make doctor                             # Go, duckdb, docker on PATH
+make build
+SNOWFLAKE_DUCKDB_PATH=:memory: make run</code></pre>
+<p>Then point a connector at it, or run <code>dbt</code> against it unchanged. The <a href="docs/01-quickstart/">quickstart</a> takes it from here.</p>
+<div class="note">
+<p style="margin:0">The result of every query names its engine: <code>dialect: duckdb</code>. This is not a claim of Snowflake SQL compatibility and never says otherwise.</p>
+</div>
+</section>
+
+</div>
+<footer>
+<div class="wrap" style="padding:0">
+Apache-2.0 · <a href="https://github.com/calvinchengx/snowflake-emulator">calvinchengx/snowflake-emulator</a> ·
+one of the <a href="https://github.com/calvinchengx/azure-emulators">azure-emulators</a> family
+</div>
+</footer>
+</body>
+</html>

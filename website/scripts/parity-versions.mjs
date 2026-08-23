@@ -14,6 +14,7 @@
 import { execSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { BASE } from '../base.mjs';
 
 const PARITY_RE = /(^|\/)parity\.md$/;
 
@@ -104,7 +105,6 @@ function diffParity(prev, cur) {
 }
 
 const versionSlug = (v) => v.replace(/[.+]/g, '-');
-const BASE = '/snowflake-emulator/';
 
 export function collectParity(repo) {
   const version = gitVersion(repo);
