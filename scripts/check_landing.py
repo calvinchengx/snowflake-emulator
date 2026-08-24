@@ -2,7 +2,7 @@
 """The landing page's numbers are the parity table's numbers.
 
 A HAND-WRITTEN NUMBER ON A FRONT PAGE ROTS SILENTLY. docs/parity.md is
-regenerated from a real run and CI fails when it drifts; site/index.html is
+regenerated from a real run and CI fails when it drifts; the landing page is
 written by a person and nothing watched it. Two counts of the same thing, one
 of them measured -- the unmeasured one is wrong the first time a probe is
 added, and the front page is where a reader forms their impression.
@@ -20,7 +20,15 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PARITY = ROOT / "docs" / "parity.md"
-LANDING = ROOT / "site" / "index.html"
+# TWO FILES, AND THE SPLIT IS THE POINT.
+#
+# The page is website/src/pages/index.astro now, built by Astro and copied to
+# the site root. Astro REWRITES markup on the way out -- it appends a scoped
+# class to every styled element, so `class="stats"` becomes
+# `class="stats astro-xxxx"` -- so a checker that reads the built page has to
+# be loosened until it stops catching anything. The counts below are an
+# AUTHORING check: they belong on the file a person edits.
+LANDING = ROOT / "website" / "src" / "pages" / "index.astro"
 
 
 def parity_counts() -> tuple[int, int, list[str]]:
@@ -46,7 +54,7 @@ def parity_counts() -> tuple[int, int, list[str]]:
 def attr(html: str, name: str) -> int:
     m = re.search(rf"{name}[^>]*>(\d+)<", html)
     if not m:
-        raise SystemExit(f"site/index.html has no element carrying {name}")
+        raise SystemExit(f"the landing page has no element carrying {name}")
     return int(m.group(1))
 
 
@@ -73,7 +81,7 @@ def main() -> int:
             problems.append(f"parity.md refuses {name!r} and the page does not say so")
 
     if problems:
-        print("site/index.html disagrees with docs/parity.md:", file=sys.stderr)
+        print("website/src/pages/index.astro disagrees with docs/parity.md:", file=sys.stderr)
         for p in problems:
             print(f"  - {p}", file=sys.stderr)
         print("\n  docs/parity.md is generated from a real run. Fix the page.", file=sys.stderr)

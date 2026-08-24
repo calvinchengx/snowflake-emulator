@@ -4,7 +4,6 @@ on:
   push:
     branches: [main]
     paths:
-      - 'site/**'
       - 'scripts/assemble_site.py'
       - 'scripts/check_landing.py'
       - 'scripts/check_site_links.py'
@@ -20,7 +19,6 @@ on:
   # is skipped below.
   pull_request:
     paths:
-      - 'site/**'
       - 'scripts/assemble_site.py'
       - 'scripts/check_landing.py'
       - 'scripts/check_site_links.py'
