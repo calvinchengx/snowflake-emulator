@@ -203,10 +203,27 @@ def serve(site: Path, port: int) -> int:
             super().__init__(*a, directory=str(site), **kw)
 
         def send_head(self):
-            verb, arg = resolve(self.path)
+            # The target is discarded on purpose -- see the redirect branch.
+            verb, _ = resolve(self.path)
             if verb == "redirect":
                 self.send_response(302)
-                self.send_header("Location", arg)
+                # SITE_PREFIX, not the resolver's returned target, and the
+                # difference is the point.
+                #
+                # The resolver has exactly ONE redirect return and its value is
+                # that build-time constant: the request path selects the branch
+                # and contributes nothing to the value. Sending the constant
+                # keeps the request out of the response header entirely, so no
+                # crafted path can put a newline in it and start a header of
+                # its own. CodeQL reported the previous form as
+                # py/http-response-splitting; the same defect and the same fix
+                # landed in fabric-emulator, which carries a copy of this
+                # script.
+                #
+                # A future redirect with a COMPUTED target must sanitise it
+                # rather than reinstating the returned value. The self-test
+                # below pins that so the change cannot pass unnoticed.
+                self.send_header("Location", SITE_PREFIX)
                 self.end_headers()
                 return None
             if verb == "404":
@@ -277,6 +294,22 @@ def self_test() -> int:
         got = resolve(request)
         ok &= got == expected
         print(f"  {'ok  ' if got == expected else 'FAIL'} {request} -> {got[0]} {got[1]}")
+
+    # The preview server sends SITE_PREFIX for every redirect rather than the
+    # resolver's returned target, which is only correct while the resolver has
+    # exactly one. Pinned here, including against crafted requests: a path that
+    # tried to smuggle a header must never come back as a redirect target.
+    for request in (
+        "/",
+        SITE_PREFIX.rstrip("/"),
+        "/%0d%0aX-Injected:%20yes",
+        f"{SITE_PREFIX}..%0d%0a",
+        "/\r\nSet-Cookie: a=b",
+    ):
+        verb, arg = resolve(request)
+        fixed = verb != "redirect" or arg == SITE_PREFIX
+        ok &= fixed
+        print(f"  {'ok  ' if fixed else 'FAIL'} redirect target for {request!r} is fixed")
 
     print("self-test passed" if ok else "self-test FAILED")
     return 0 if ok else 1
