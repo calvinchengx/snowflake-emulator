@@ -113,8 +113,16 @@ func TestAStageNameCannotEscapeTheStageDirectory(t *testing.T) {
 		// what the code actually sees rather than an idealised input.
 		clean := strings.Trim(strings.ToUpper(name), `"`)
 		got, err := s.stagePath(clean)
-		if err == nil && !strings.HasPrefix(got, stages+string(filepath.Separator)) && got != stages {
-			t.Errorf("stagePath(%q) = %q, which is outside %q", name, got, stages)
+		if err != nil {
+			continue // refused outright, which is one acceptable outcome
+		}
+		// The other is a path strictly INSIDE the stage directory. Note the
+		// absence of an `|| got == stages` escape hatch: resolving to the root
+		// is not containment, it is the worst case. DROP's sink is
+		// os.RemoveAll, so a name landing on the root deletes every stage.
+		// `$..` and, on Unix, `..\..` are ordinary filenames and land here.
+		if !strings.HasPrefix(got, stages+string(filepath.Separator)) {
+			t.Errorf("stagePath(%q) = %q, which is not inside %q", name, got, stages)
 		}
 	}
 
@@ -126,10 +134,12 @@ func TestAStageNameCannotEscapeTheStageDirectory(t *testing.T) {
 	if ok != filepath.Join(stages, "MYSTAGE") {
 		t.Fatalf("stagePath(MYSTAGE) = %q", ok)
 	}
-	// The user stage is the directory itself, not a child of it.
-	same, err := s.stagePath()
-	if err != nil || same != stages {
-		t.Fatalf("stagePath() = %q, %v; want the stage dir itself", same, err)
+	// An empty name resolves to the stage directory itself, which for DROP
+	// means os.RemoveAll over every stage. It is refused. The user stage is
+	// reached through stageDir's explicit `~` case, not by this falling
+	// through to the root.
+	if got, err := s.stagePath(""); err == nil {
+		t.Fatalf("stagePath(\"\") = %q, want a refusal", got)
 	}
 }
 

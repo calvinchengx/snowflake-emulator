@@ -81,13 +81,18 @@ func defaultFormat() fileFormat {
 // scope: defeating this would need write access to that directory already,
 // which is a larger problem than this function can hold.
 func (s *Server) stagePath(parts ...string) (string, error) {
-	root := filepath.Clean(s.Cfg.StageDir)
-	joined := filepath.Join(append([]string{root}, parts...)...)
-	if joined != root && !strings.HasPrefix(joined, root+string(filepath.Separator)) {
-		return "", fmt.Errorf("stage name %q resolves outside the stage directory",
-			filepath.Join(parts...))
+	// filepath.IsLocal IS the check. It reports, lexically, whether a path
+	// stays inside the directory it is relative to: not absolute, not empty,
+	// not climbing out with "..", and on Windows not a reserved device name.
+	// That is exactly the invariant a stage name has to satisfy, and stating
+	// it this way rather than as a prefix test on the joined path is also what
+	// makes it legible to CodeQL -- a prefix test proves nothing about a path
+	// that has not been normalised first.
+	rel := filepath.Join(parts...)
+	if !filepath.IsLocal(rel) {
+		return "", fmt.Errorf("stage name %q resolves outside the stage directory", rel)
 	}
-	return joined, nil
+	return filepath.Join(s.Cfg.StageDir, rel), nil
 }
 
 func (s *Server) stageDir(name string) (string, error) {
