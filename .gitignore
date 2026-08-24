@@ -23,3 +23,6 @@ website/dist/
 
 # Local tooling
 .nwave/
+
+# Assembled by scripts/assemble_site.py for the Pages deploy.
+_site/
