@@ -58,12 +58,52 @@ func defaultFormat() fileFormat {
 	return fileFormat{Type: "CSV", Delimiter: ",", Quote: `"`}
 }
 
+// stagePath joins a caller-supplied stage name under the stage directory and
+// refuses anything that escapes it.
+//
+// WHY THIS IS NEEDED AND WHY IT IS NOT OBVIOUS. The stage-name grammar is
+// `[A-Za-z0-9_$."]+`, which admits no `/` -- so `../../etc` truncates at the
+// slash and looks safe. It is not: `..` on its own matches the grammar whole,
+// and `strings.ToUpper` cannot neutralise a name with no letters in it.
+// Measured against the real regex:
+//
+//	DROP STAGE ..     -> RemoveAll(<parent of StageDir>)
+//	DROP STAGE ".."   -> RemoveAll(<parent of StageDir>)
+//
+// One level of escape rather than arbitrary, and the sink is a RECURSIVE
+// DELETE, which is enough. CodeQL reported all three call sites as
+// go/path-injection; a fourth in dbtproject.go was not flagged and has the
+// same shape, so it routes through here too.
+//
+// REFUSED, NOT SANITISED. Stripping `..` invites the next encoding; a name
+// that does not land inside the stage directory is not a stage name, and
+// saying so is the whole check. Symlinks inside the stage directory are out of
+// scope: defeating this would need write access to that directory already,
+// which is a larger problem than this function can hold.
+func (s *Server) stagePath(parts ...string) (string, error) {
+	// filepath.IsLocal IS the check. It reports, lexically, whether a path
+	// stays inside the directory it is relative to: not absolute, not empty,
+	// not climbing out with "..", and on Windows not a reserved device name.
+	// That is exactly the invariant a stage name has to satisfy, and stating
+	// it this way rather than as a prefix test on the joined path is also what
+	// makes it legible to CodeQL -- a prefix test proves nothing about a path
+	// that has not been normalised first.
+	rel := filepath.Join(parts...)
+	if !filepath.IsLocal(rel) {
+		return "", fmt.Errorf("stage name %q resolves outside the stage directory", rel)
+	}
+	return filepath.Join(s.Cfg.StageDir, rel), nil
+}
+
 func (s *Server) stageDir(name string) (string, error) {
 	if name == "~" {
 		return s.Cfg.StageDir, nil // the user stage
 	}
 	clean := strings.Trim(strings.ToUpper(name), `"`)
-	dir := filepath.Join(s.Cfg.StageDir, clean)
+	dir, err := s.stagePath(clean)
+	if err != nil {
+		return "", err
+	}
 	if _, err := os.Stat(dir); err != nil {
 		return "", fmt.Errorf("stage %s does not exist", name)
 	}
@@ -80,7 +120,12 @@ func (s *Server) handleStageSQL(w http.ResponseWriter, sqlText string) bool {
 			return true
 		}
 		name := strings.Trim(strings.ToUpper(m[1]), `"`)
-		if err := os.MkdirAll(filepath.Join(s.Cfg.StageDir, name), 0o755); err != nil {
+		dir, err := s.stagePath(name)
+		if err != nil {
+			writeFail(w, http.StatusOK, "001012", err.Error())
+			return true
+		}
+		if err := os.MkdirAll(dir, 0o755); err != nil {
 			writeFail(w, http.StatusOK, "001012", err.Error())
 			return true
 		}
@@ -91,7 +136,12 @@ func (s *Server) handleStageSQL(w http.ResponseWriter, sqlText string) bool {
 
 	if m := reDropStage.FindStringSubmatch(trimmed); m != nil {
 		name := strings.Trim(strings.ToUpper(m[1]), `"`)
-		if err := os.RemoveAll(filepath.Join(s.Cfg.StageDir, name)); err != nil {
+		dir, err := s.stagePath(name)
+		if err != nil {
+			writeFail(w, http.StatusOK, "001012", err.Error())
+			return true
+		}
+		if err := os.RemoveAll(dir); err != nil {
 			writeFail(w, http.StatusOK, "001012", err.Error())
 			return true
 		}

@@ -1,8 +1,12 @@
 package server
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/calvinchengx/snowflake-emulator/internal/config"
 )
 
 func TestDefaultFormatIsSnowflakesNotOurs(t *testing.T) {
@@ -86,5 +90,69 @@ func TestExternalStagesAreRefusedByName(t *testing.T) {
 	}
 	if reExternal.MatchString("COPY INTO t FROM @~/x.csv") {
 		t.Error("an internal stage must not be mistaken for an external one")
+	}
+}
+
+// A stage name that resolves outside the stage directory must be refused, and
+// the case that matters is the one the grammar does not obviously admit.
+//
+// `[A-Za-z0-9_$."]+` contains no `/`, so `../../etc` truncates at the slash and
+// looks harmless. `..` on its own matches whole, and `strings.ToUpper` cannot
+// neutralise a name with no letters in it. The sink for DROP is os.RemoveAll,
+// so the consequence is a recursive delete of the stage directory's parent.
+func TestAStageNameCannotEscapeTheStageDirectory(t *testing.T) {
+	root := t.TempDir()
+	stages := filepath.Join(root, "stages")
+	if err := os.MkdirAll(stages, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{Cfg: config.Config{StageDir: stages}}
+
+	for _, name := range []string{"..", `".."`, "../../etc", "..\\..", "$.."} {
+		// Through the same trim/upper the handlers apply, so the test drives
+		// what the code actually sees rather than an idealised input.
+		clean := strings.Trim(strings.ToUpper(name), `"`)
+		got, err := s.stagePath(clean)
+		if err != nil {
+			continue // refused outright, which is one acceptable outcome
+		}
+		// The other is a path strictly INSIDE the stage directory. Note the
+		// absence of an `|| got == stages` escape hatch: resolving to the root
+		// is not containment, it is the worst case. DROP's sink is
+		// os.RemoveAll, so a name landing on the root deletes every stage.
+		// `$..` and, on Unix, `..\..` are ordinary filenames and land here.
+		if !strings.HasPrefix(got, stages+string(filepath.Separator)) {
+			t.Errorf("stagePath(%q) = %q, which is not inside %q", name, got, stages)
+		}
+	}
+
+	// And the ordinary case must still work, or the refusal proves nothing.
+	ok, err := s.stagePath("MYSTAGE")
+	if err != nil {
+		t.Fatalf("a normal stage name was refused: %v", err)
+	}
+	if ok != filepath.Join(stages, "MYSTAGE") {
+		t.Fatalf("stagePath(MYSTAGE) = %q", ok)
+	}
+	// An empty name resolves to the stage directory itself, which for DROP
+	// means os.RemoveAll over every stage. It is refused. The user stage is
+	// reached through stageDir's explicit `~` case, not by this falling
+	// through to the root.
+	if got, err := s.stagePath(""); err == nil {
+		t.Fatalf("stagePath(\"\") = %q, want a refusal", got)
+	}
+}
+
+// The regex admits `..`, which is why the containment check exists rather than
+// the grammar being trusted to prevent it. If this ever fails because the
+// grammar tightened, stagePath is still correct -- but the reason for it has
+// changed and the comment above it should say so.
+func TestTheStageGrammarStillAdmitsDotDot(t *testing.T) {
+	m := reDropStage.FindStringSubmatch("DROP STAGE ..")
+	if m == nil {
+		t.Skip("the grammar no longer admits `..`; stagePath is now belt and braces")
+	}
+	if got := strings.Trim(strings.ToUpper(m[1]), `"`); got != ".." {
+		t.Fatalf("captured %q, want `..`", got)
 	}
 }
