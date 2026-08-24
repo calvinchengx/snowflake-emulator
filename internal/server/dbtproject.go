@@ -323,7 +323,13 @@ func (s *Server) storeDbtOutput(name, projectDir string) (string, error) {
 		// be believed.
 		return "", nil
 	}
-	dir := filepath.Join(s.Cfg.StageDir, dbtOutputPrefix, name)
+	// Through stagePath for the same reason the stage handlers are: `name`
+	// carries a caller-supplied project name through dbtKey, which trims and
+	// uppercases but cannot neutralise `..`. CodeQL did not flag this one.
+	dir, err := s.stagePath(dbtOutputPrefix, name)
+	if err != nil {
+		return "", err
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
