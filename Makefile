@@ -9,7 +9,7 @@ UV ?= uv
 PY ?= $(shell if command -v uv >/dev/null 2>&1; then echo "uv run --frozen --no-sync python"; \
 	else for c in python3 python py; do if "$$c" -c '' >/dev/null 2>&1; then echo "$$c"; break; fi; done; fi)
 
-.PHONY: help doctor build run up down logs test e2e-sdk e2e-sql e2e-dbt e2e-iceberg e2e-snowflake-target clean witnesses
+.PHONY: help doctor build run up down logs test e2e-sdk e2e-sql e2e-dbt e2e-iceberg e2e-snowflake-target clean witnesses docs-build docs-serve
 
 help:
 	@grep -hE '^[a-z0-9-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -99,3 +99,34 @@ witnesses: ## Verify docs/witnesses.json
 clean:
 	rm -f snowflake-emulator snowflake-emulator.exe
 	rm -rf data
+
+# ---------------------------------------------------------------------------
+# The documentation site.
+#
+# Not called `docs`: there is a docs/ DIRECTORY here, and a target sharing its
+# name is satisfied by the directory existing. `make docs` would print
+# "nothing to be done" and exit 0, which is the failure that looks like
+# success. .PHONY would also fix it; a name that cannot collide fixes it
+# whether or not anyone remembers .PHONY.
+#
+# `pnpm --filter $(DOCS_PKG) dev` is the fast inner loop for PROSE, and it is
+# not this. It is based at the docs subpath and knows nothing about the tree
+# around it, so under it the landing page does not exist and the redirect stubs
+# do not exist. Use it to write a page; use `make docs-serve` before believing
+# the site works.
+#
+# CI runs `make docs-build` and publishes exactly what it leaves in ./_site, so
+# the thing previewed here is the thing that deploys.
+DOCS_PKG  ?= snowflake-emulator-docs
+DOCS_PORT ?= 8099
+
+docs-build: ## Build the published site into ./_site (what CI deploys)
+	pnpm install --frozen-lockfile
+	pnpm --filter $(DOCS_PKG) build
+	$(PY) scripts/assemble_site.py --self-test
+	$(PY) scripts/assemble_site.py --out _site
+	$(PY) scripts/check_landing.py
+	$(PY) scripts/check_site_links.py --site _site
+
+docs-serve: docs-build ## …and serve it locally at its published URLs (DOCS_PORT=8099)
+	$(PY) scripts/assemble_site.py --serve --site _site --port $(DOCS_PORT)

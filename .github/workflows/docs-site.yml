@@ -5,6 +5,11 @@ on:
     branches: [main]
     paths:
       - 'site/**'
+      - 'scripts/assemble_site.py'
+      - 'scripts/check_landing.py'
+      - 'scripts/check_site_links.py'
+      - 'website/published-routes.txt'
+      - 'Makefile'
       - 'docs/**'
       - 'website/**'
       - 'pnpm-lock.yaml'
@@ -16,6 +21,11 @@ on:
   pull_request:
     paths:
       - 'site/**'
+      - 'scripts/assemble_site.py'
+      - 'scripts/check_landing.py'
+      - 'scripts/check_site_links.py'
+      - 'website/published-routes.txt'
+      - 'Makefile'
       - 'docs/**'
       - 'website/**'
       - 'pnpm-lock.yaml'
@@ -50,27 +60,23 @@ jobs:
         with:
           node-version: '22'
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter snowflake-emulator-docs build
-      # The published site is the landing page at the root with the rendered
-      # docs beneath it, so `/` is the project's front door and every chapter
-      # lives under `/docs/`. The landing page needs no build: it is one
-      # self-contained file, and publishing it is a copy.
-      - name: Assemble the site
-        run: |
-          mkdir -p _site
-          cp site/index.html _site/index.html
-          cp -R website/dist _site/docs
-      # The page states counts that docs/parity.md measures. Nothing else
-      # watches a number written by hand.
-      - name: The landing page agrees with the parity table
-        run: python3 scripts/check_landing.py
-      # AFTER assembly, because the assembled tree is what is served. A link
-      # from the landing page into the docs is only resolvable once both
-      # halves sit in one directory, and the docs' base path moved when they
-      # did -- which is the change that 404s silently if it is got wrong.
-      - name: Every internal link resolves
-        run: python3 scripts/check_site_links.py --site _site
+      # ONE STEP, AND IT IS THE ONE A DEVELOPER RUNS. `make docs-serve` builds
+      # with this same target and then serves the result at the paths it
+      # publishes under, so what is previewed locally is what deploys from
+      # here. Spelling the sequence out in YAML instead is how the two drift:
+      # the local recipe is the one nobody updates, and it is also the only one
+      # anyone looks at before pushing. The two `cp` lines this replaces had no
+      # local equivalent at all.
+      #
+      # What it runs, and why each part is not redundant, is documented at the
+      # target in the Makefile. In short: the Starlight build; the assembler,
+      # which lays the landing page over the docs AND writes a redirect stub
+      # for every one of the 30 URLs this site published before #64 moved the
+      # base, held to `website/published-routes.txt` as its oracle; the landing
+      # page's counts against docs/parity.md; and every internal link in the
+      # ASSEMBLED tree, which is the check that catches a base path updated in
+      # one file out of three.
+      - run: make docs-build
       - uses: actions/upload-pages-artifact@v5
         if: github.event_name != 'pull_request'
         with:
