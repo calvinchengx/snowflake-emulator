@@ -47,7 +47,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 DIST = ROOT / "website" / "dist"
-LANDING = ROOT / "site" / "index.html"
+# BUILT, not hand-written: website/src/pages/index.astro renders here, so the
+# site root and the docs base are one source with nothing to drift between.
+LANDING = DIST / "index.html"
 ROUTES = ROOT / "website" / "published-routes.txt"
 BASE_MJS = ROOT / "website" / "base.mjs"
 

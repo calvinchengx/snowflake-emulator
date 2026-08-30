@@ -79,27 +79,18 @@ function convert(srcPath, name) {
   return `---\ntitle: ${yamlEscape(title)}\neditUrl: ${yamlEscape(editUrl)}\n---\n\n` + body;
 }
 
-function writeIndex() {
-  // Render the repo's own docs/index.md rather than a hardcoded landing page.
-  //
-  // This file was copied from databricks-emulator and its writeIndex() kept
-  // that repo's title, description, prose and chapter list, so the published
-  // home page announced a "Databricks workspace" and linked to pages that do
-  // not exist here. Reading docs/index.md means the landing page cannot drift
-  // from the repo again: there is only one copy of it.
-  const src = join(DOCS_SRC, 'index.md');
-  const raw = readFileSync(src, 'utf8');
-  const match = /^---\n([\s\S]*?)\n---\n?/.exec(raw);
-  if (!match) {
-    throw new Error('sync-docs: docs/index.md needs frontmatter with a title');
-  }
-  const frontmatter = match[1].replace(/\neditUrl:.*$/m, '');
-  const body = rewriteLinks(rewriteRepoLinks(raw.slice(match[0].length), 'index'), 'index');
-  writeFileSync(
-    join(OUT, 'index.md'),
-    `---\n${frontmatter}\neditUrl: ${JSON.stringify(`${REPO}/edit/main/docs/index.md`)}\n---\n\n` + body,
-  );
-}
+// NO writeIndex() ANY MORE, and this note is here so its absence reads as a
+// decision rather than an omission.
+//
+// The docs root is `website/src/pages/index.astro` -- the landing page, served
+// at the site root AND at the docs base from one build output. `docs/index.md`
+// would have claimed that second route.
+//
+// Its content was not lost, because it was already duplicated: the refusals
+// story, the eighteen constructs that answered `status: ok`, and "start here"
+// were all on the landing page too. That is exactly the two-surface
+// duplication fabric-emulator's assembler warns about. Only the curated
+// chapter list was unique, and it moved onto that page under #docs.
 
 rmSync(OUT, { recursive: true, force: true });
 mkdirSync(OUT, { recursive: true });
@@ -108,7 +99,6 @@ const names = readdirSync(DOCS_SRC).filter((n) => DOC_RE.test(n)).sort();
 for (const name of names) {
   writeFileSync(join(OUT, name), convert(join(DOCS_SRC, name), name));
 }
-writeIndex();
 const info = writeParityHistory(OUT, PARITY, { convertBody });
 const DATA = join(here, '..', 'src', 'data');
 mkdirSync(DATA, { recursive: true });

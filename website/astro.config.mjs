@@ -33,7 +33,6 @@ export default defineConfig({
         {
           label: 'Getting started',
           items: [
-            { slug: 'index' },
             { slug: '00-doctrine' },
             { slug: '01-quickstart' },
             { slug: '02-installation' },

@@ -1,3 +1,24 @@
+---
+// The landing page, as an Astro page rather than a hand-written file.
+//
+// WHY IT MOVED. It used to be site/index.html, copied to the site root by
+// scripts/assemble_site.py and seen by nothing else -- not the Astro build,
+// not `astro dev`, not a single check that protects the docs. fabric-emulator
+// ran the two-surface version and its assembler records how it ended: a
+// hand-written root page and an Astro page under /docs/ drifted until the
+// version pill read "unreleased" on a repository with 33 tags. One source now,
+// served at BOTH doors from one build output.
+//
+// THE RULE THAT MAKES ONE FILE CORRECT AT TWO DEPTHS: nothing here may be
+// page-relative. This exact file is served at /snowflake-emulator/ AND at
+// /snowflake-emulator/docs/, so `href="docs/parity/"` resolves to two
+// different places and is wrong at one of them.
+//
+//   base -- where the DOCS live:    /snowflake-emulator/docs/
+//   root -- where the SITE root is: /snowflake-emulator/
+const base = import.meta.env.BASE_URL;
+const root = base.replace(/docs\/$/, "");
+---
 <!doctype html>
 <html lang="en">
 <head>
@@ -73,6 +94,9 @@ pre code{background:none;padding:0;font-size:.86rem;line-height:1.55}
   color:var(--muted);margin-top:2px}
 footer{border-top:1px solid var(--line);margin-top:20px;padding:26px 0 60px;color:var(--muted);font-size:.9rem}
 footer a{color:var(--muted)}
+.chapters{list-style:none;padding:0;display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
+.chapters a{display:block;padding:12px 14px;border:1px solid var(--line,#e3e5e9);border-radius:10px;text-decoration:none}
+.chapters b{display:block}
 </style>
 </head>
 <body>
@@ -88,9 +112,9 @@ footer a{color:var(--muted)}
 <span class="pill">Apache-2.0</span>
 </div>
 <div class="cta">
-<a class="btn primary" href="docs/">Read the docs</a>
+<a class="btn primary" href={`${base}01-quickstart/`}>Read the docs</a>
 <a class="btn ghost" href="https://github.com/calvinchengx/snowflake-emulator">GitHub</a>
-<a class="btn ghost" href="docs/parity/">What is answered</a>
+<a class="btn ghost" href={`${base}parity/`}>What is answered</a>
 </div>
 </header>
 
@@ -111,7 +135,7 @@ footer a{color:var(--muted)}
 <div class="refused">
 <code>MERGE</code><code>OBJECT_CONSTRUCT</code><code>REMOVE</code><code>Time Travel</code><code>CLONE</code><code>GRANT / roles</code><code>Stored procedures</code>
 </div>
-<p>Some are next; some never will be. <code>GRANT</code> is refused on purpose — an access model that is accepted and not enforced is worse than one that is absent, because you would test against it. Time Travel and  need a versioned store the engine does not have. The <a href="docs/12-roadmap/">roadmap</a> says which is which, and why.</p>
+<p>Some are next; some never will be. <code>GRANT</code> is refused on purpose — an access model that is accepted and not enforced is worse than one that is absent, because you would test against it. Time Travel and  need a versioned store the engine does not have. The <a href={`${base}12-roadmap/`}>roadmap</a> says which is which, and why.</p>
 </section>
 
 <section>
@@ -119,13 +143,43 @@ footer a{color:var(--muted)}
 <pre><code>make doctor                             # Go, duckdb, docker on PATH
 make build
 SNOWFLAKE_DUCKDB_PATH=:memory: make run</code></pre>
-<p>Then point a connector at it, or run <code>dbt</code> against it unchanged. The <a href="docs/01-quickstart/">quickstart</a> takes it from here.</p>
+<p>Then point a connector at it, or run <code>dbt</code> against it unchanged. The <a href={`${base}01-quickstart/`}>quickstart</a> takes it from here.</p>
 <div class="note">
 <p style="margin:0">The result of every query names its engine: <code>dialect: duckdb</code>. This is not a claim of Snowflake SQL compatibility and never says otherwise.</p>
 </div>
 </section>
 
 </div>
+
+<section id="docs">
+  <div class="wrap">
+    <h2>Documentation</h2>
+    <!-- THE DOCS INDEX LIVES HERE NOW. This page IS the docs root: it is served
+         at /snowflake-emulator/ and at /snowflake-emulator/docs/ from one build
+         output, so docs/index.md would have claimed the same route.
+         Its content was already on this page -- the refusals story, the
+         eighteen constructs, "start here" -- which is precisely the two-surface
+         duplication fabric-emulator's assembler warns about. Only its curated
+         chapter list was unique, and it is below. -->
+    <ul class="chapters">
+    <li><a href={`${base}00-doctrine/`}><b>Doctrine</b> &mdash; what this is, and what it is not</a></li>
+    <li><a href={`${base}01-quickstart/`}><b>Quickstart</b> &mdash; the first statement, and the first refusal</a></li>
+    <li><a href={`${base}02-installation/`}><b>Installation</b> &mdash; brew, winget, go install, Docker, compose</a></li>
+    <li><a href={`${base}03-architecture/`}><b>Architecture</b> &mdash; the account model and where DuckDB sits</a></li>
+    <li><a href={`${base}04-configuration/`}><b>Configuration</b> &mdash; every environment variable</a></li>
+    <li><a href={`${base}05-sql-surface/`}><b>SQL surface</b> &mdash; what the dialect answers, and what it refuses</a></li>
+    <li><a href={`${base}06-stages-and-copy/`}><b>Stages and COPY</b> &mdash; loading and unloading</a></li>
+    <li><a href={`${base}07-semi-structured/`}><b>Semi-structured</b> &mdash; VARIANT, OBJECT, ARRAY</a></li>
+    <li><a href={`${base}08-tasks-and-streams/`}><b>Tasks and Streams</b> &mdash; the surface, and its boundaries</a></li>
+    <li><a href={`${base}09-clients/`}><b>Clients</b> &mdash; the connectors that drive it unmodified</a></li>
+    <li><a href={`${base}10-testing/`}><b>Testing</b> &mdash; what each suite proves</a></li>
+    <li><a href={`${base}11-family-integration/`}><b>Family integration</b> &mdash; the wider emulator family</a></li>
+    <li><a href={`${base}12-roadmap/`}><b>Roadmap</b> &mdash; what is next, and what never will be</a></li>
+    <li><a href={`${base}parity/`}><b>Parity ledger</b> &mdash; every claim, measured against the built image</a></li>
+    </ul>
+  </div>
+</section>
+
 <footer>
 <div class="wrap" style="padding:0">
 Apache-2.0 · <a href="https://github.com/calvinchengx/snowflake-emulator">calvinchengx/snowflake-emulator</a> ·
