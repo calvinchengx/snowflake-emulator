@@ -1,5 +1,5 @@
 # Build: static Go binary + duckdb CLI (the named engine).
-FROM golang:1.26 AS build
+FROM mirror.gcr.io/library/golang:1.26 AS build
 ARG VERSION=dev
 WORKDIR /src
 COPY go.mod ./
@@ -7,7 +7,7 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /snowflake-emulator ./cmd/snowflake-emulator
 
-FROM debian:bookworm-slim
+FROM mirror.gcr.io/library/debian:bookworm-slim
 ARG TARGETARCH
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl unzip \
     && arch="$TARGETARCH" \

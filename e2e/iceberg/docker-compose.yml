@@ -3,7 +3,7 @@
 # at /iceberg/v1/ after CREATE ICEBERG TABLE.
 services:
   polaris:
-    image: apache/polaris:1.0.1-incubating
+    image: mirror.gcr.io/apache/polaris:1.0.1-incubating
     profiles: [polaris]
     ports:
       - "18181:8181"
