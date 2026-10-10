@@ -1,5 +1,5 @@
 # Build: static Go binary + duckdb CLI (the named engine).
-FROM mirror.gcr.io/library/golang:1.26 AS build
+FROM mirror.gcr.io/library/golang:1.27 AS build
 ARG VERSION=dev
 WORKDIR /src
 COPY go.mod ./
