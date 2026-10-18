@@ -14,7 +14,7 @@ sql = ["snowflake-connector-python>=4.8.0,<5"]
 # default, so an emulator running a 2.0 beta is stricter than the thing it
 # stands in for: contoso-data-product's gold parsed on every other engine and
 # failed with 11 DbtYamlValidationError here.
-dbt = ["dbt-snowflake>=1.12.1,<2", "dbt-core>=1.12.5,<2"]
+dbt = ["dbt-snowflake>=1.12.3,<2", "dbt-core>=1.12.6,<2"]
 target = [
     "snowflake-target",
     "pytest>=8.3,<10",
