@@ -8,7 +8,7 @@ import re
 import sys
 
 if hasattr(sys.stdout, "reconfigure"):
-    # ty: ignore[call-non-callable]
+    # ty: ignore[not-callable]
     # typeshed types sys.stdout as TextIO, which declares no reconfigure; the
     # method is on TextIOWrapper, which is what it actually is at runtime. The
     # hasattr guard above is the check that matters, and it is already here.
